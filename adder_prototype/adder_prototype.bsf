@@ -422,7 +422,7 @@ https://fpgasoftware.intel.com/eula.
 		(text "oct_rzqin" (rect 358 307 770 624)(font "Arial" (color 0 0 0)))
 		(text "reset" (rect 163 627 356 1267)(font "Arial" (color 128 0 0)(font_size 9)))
 		(text "reset_n" (rect 197 651 436 1312)(font "Arial" (color 0 0 0)))
-		(text " system " (rect 557 672 1162 1354)(font "Arial" ))
+		(text " adder_prototype " (rect 518 672 1138 1354)(font "Arial" ))
 		(line (pt 192 32)(pt 400 32)(line_width 1))
 		(line (pt 400 32)(pt 400 672)(line_width 1))
 		(line (pt 192 672)(pt 400 672)(line_width 1))
