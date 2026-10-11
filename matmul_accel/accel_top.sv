@@ -94,6 +94,8 @@ module accel_top #(
     logic sel_ctrl_r;
     logic sel_obuf_r;
     logic rd_burst_on;
+    wire rf_data_valid;
+    logic obuf_data_valid;
 
     logic [10:0] burst_cnt_buf;
     logic [AVS_ADDR_WIDTH-1:0] addr_buf;
@@ -214,6 +216,7 @@ module accel_top #(
     wire [OBUF_RADDR_WIDTH-1:0] obuf_ext_rdaddress =
         (rd_burst_on ? (addr_buf - OBUF_BASE) : (avs_address - OBUF_BASE)) >> WORD_SHIFT;
     logic [AVS_DATA_WIDTH-1:0] obuf_ext_q;
+    wire [AVS_DATA_WIDTH-1:0] obuf_activated_q;
 
     logic obuf_rd_pending;
     always_ff @(posedge clk or negedge reset_n)begin
@@ -239,7 +242,6 @@ module accel_top #(
     // stall cycle) and drops after burst_cnt_buf beats. Same shape as
     // rf_data_valid below, and it keeps avs_readdatavalid off any
     // combinational path from avs_read.
-    logic        obuf_data_valid;
     assign       obuf_data_valid = rd_burst_on && sel_obuf_r;
 
     logic        output_loader_busy;
@@ -291,7 +293,7 @@ module accel_top #(
     // write puts a phantom beat on the read channel. A write issued the
     // cycle after a read is accepted (which Avalon allows) then looks like
     // that read's valid stretching one cycle longer than the burst.
-    wire        rf_data_valid = rd_burst_on && sel_ctrl_r;
+    assign rf_data_valid = rd_burst_on && sel_ctrl_r;
 
     logic        matmul_start;          // pulse: latch WEIGHT_ROWS/WEIGHT_COLS, reset block position
     logic [15:0] weight_rows;           // K: weight rows (contraction dimension)
@@ -376,7 +378,16 @@ module accel_top #(
     // Avalon read mux / waitrequest
     // ============================================================
     // assign avs_waitrequest = avs_read && sel_obuf && !obuf_rd_pending;
-    assign avs_readdata    = obuf_rd_pending ? obuf_ext_q : (((sel_ctrl && avs_read) || (rd_burst_on && sel_ctrl_r)) ? ctrl_rdata : 32'h0);
+    matmul_gelu_readout #(.DATA_WIDTH(AVS_DATA_WIDTH),
+        .BANK_ADDR_WIDTH(OBUF_BANK_ADDR_WIDTH), .BANKS(ARRAY_COLS)) u_gelu_readout (
+        .clock(clk), .reset_n(reset_n),
+        .config_write(avs_write_accepted && !matmul_busy),
+        .config_address(avs_address[15:0]), .config_data(avs_writedata),
+        .config_byteenable(avs_byteenable), .columns(input_cols),
+        .read_word_address(obuf_ext_rdaddress), .raw_data(obuf_ext_q),
+        .result(obuf_activated_q)
+    );
+    assign avs_readdata    = obuf_rd_pending ? obuf_activated_q : (((sel_ctrl && avs_read) || (rd_burst_on && sel_ctrl_r)) ? ctrl_rdata : 32'h0);
 
     // ============================================================
     // input_dispatch - streams input_buffer into the array's left edge,

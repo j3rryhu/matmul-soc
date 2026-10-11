@@ -44,6 +44,8 @@ add_fileset_file input_buffer_32_bank.v VERILOG PATH matmul_accel/input_buffer_3
 add_fileset_file input_dispatch.v VERILOG PATH matmul_accel/input_dispatch.v
 add_fileset_file output_buffer_32_bank.v VERILOG PATH matmul_accel/output_buffer_32_bank.v
 add_fileset_file output_loader.v VERILOG PATH matmul_accel/output_loader.v
+add_fileset_file matmul_gelu_readout.v VERILOG PATH activation/rtl/matmul_gelu_readout.v
+add_fileset_file gelu_int8.hex OTHER PATH activation/example/gelu_int8.hex
 add_fileset_file pe.v VERILOG PATH matmul_accel/pe.v
 add_fileset_file pe_array.v VERILOG PATH matmul_accel/pe_array.v
 add_fileset_file sync_fifo.v VERILOG PATH matmul_accel/sync_fifo.v

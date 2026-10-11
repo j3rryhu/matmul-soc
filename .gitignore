@@ -36,3 +36,11 @@ c5_pin_model_dump.txt
 # Comment these out if you'd rather commit generated IP — see note below
 */synthesis/
 */simulation/
+
+# Python and local ModelSim build artifacts
+__pycache__/
+*.pyc
+activation/rtl/work/
+modelsim.ini
+transcript
+vsim.wlf
