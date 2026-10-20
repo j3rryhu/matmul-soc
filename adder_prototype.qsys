@@ -73,6 +73,22 @@
          type = "String";
       }
    }
+   element dma_1
+   {
+      datum _sortIndex
+      {
+         value = "8";
+         type = "int";
+      }
+   }
+   element dma_1.control_port_slave
+   {
+      datum baseAddress
+      {
+         value = "32";
+         type = "String";
+      }
+   }
    element hps_0
    {
       datum _sortIndex
@@ -185,8 +201,8 @@
   <parameter name="avalonSpec" value="2.0" />
   <parameter name="bigEndian" value="false" />
   <parameter name="burstEnable" value="true" />
-  <parameter name="fifoDepth" value="1024" />
-  <parameter name="maxBurstSize" value="512" />
+  <parameter name="fifoDepth" value="4096" />
+  <parameter name="maxBurstSize" value="1024" />
   <parameter name="minimumDmaTransactionRegisterWidth" value="32" />
   <parameter name="readAddressMap"><![CDATA[<address-map><slave name='axi_conduit_merger_0.altera_axi_slave' start='0x0' end='0x100000000' /></address-map>]]></parameter>
   <parameter name="readSlaveAddressWidthMax" value="32" />
@@ -196,6 +212,27 @@
   <parameter name="writeAddressMap"><![CDATA[<address-map><slave name='matmul_accel_0.avalon_slave_0' start='0x0' end='0x10000' /></address-map>]]></parameter>
   <parameter name="writeSlaveAddressWidthMax" value="16" />
   <parameter name="writeSlaveDataWidthMax" value="128" />
+ </module>
+ <module name="dma_1" kind="altera_avalon_dma" version="23.1" enabled="1">
+  <parameter name="allowByteTransactions" value="true" />
+  <parameter name="allowDoubleWordTransactions" value="true" />
+  <parameter name="allowHalfWordTransactions" value="true" />
+  <parameter name="allowQuadWordTransactions" value="true" />
+  <parameter name="allowWordTransactions" value="true" />
+  <parameter name="avalonSpec" value="2.0" />
+  <parameter name="bigEndian" value="false" />
+  <parameter name="burstEnable" value="true" />
+  <parameter name="fifoDepth" value="4096" />
+  <parameter name="maxBurstSize" value="1024" />
+  <parameter name="minimumDmaTransactionRegisterWidth" value="32" />
+  <parameter name="readAddressMap"><![CDATA[<address-map><slave name='matmul_accel_0.avalon_slave_0' start='0x0' end='0x10000' /></address-map>]]></parameter>
+  <parameter name="readSlaveAddressWidthMax" value="16" />
+  <parameter name="readSlaveDataWidthMax" value="128" />
+  <parameter name="softresetEnable" value="true" />
+  <parameter name="useRegistersForFIFO" value="false" />
+  <parameter name="writeAddressMap"><![CDATA[<address-map><slave name='hps_0_axi_sdram.axi_slave0' start='0x0' end='0x80000000' /><slave name='hps_0_gmac0.axi_slave0' start='0xFF700000' end='0xFF702000' /><slave name='hps_0_gmac1.axi_slave0' start='0xFF702000' end='0xFF704000' /><slave name='hps_0_sdmmc.axi_slave0' start='0xFF704000' end='0xFF705000' /><slave name='hps_0_qspi.axi_slave0' start='0xFF705000' end='0xFF705100' /><slave name='hps_0_fpgamgr.axi_slave0' start='0xFF706000' end='0xFF707000' /><slave name='hps_0_gpio0.axi_slave0' start='0xFF708000' end='0xFF708100' /><slave name='hps_0_gpio1.axi_slave0' start='0xFF709000' end='0xFF709100' /><slave name='hps_0_gpio2.axi_slave0' start='0xFF70A000' end='0xFF70A100' /><slave name='hps_0_l3regs.axi_slave0' start='0xFF800000' end='0xFF801000' /><slave name='hps_0_nand0.axi_slave0' start='0xFF900000' end='0xFF910000' /><slave name='hps_0_qspi.axi_slave1' start='0xFFA00000' end='0xFFA00100' /><slave name='hps_0_usb0.axi_slave0' start='0xFFB00000' end='0xFFB40000' /><slave name='hps_0_usb1.axi_slave0' start='0xFFB40000' end='0xFFB80000' /><slave name='hps_0_nand0.axi_slave1' start='0xFFB80000' end='0xFFB90000' /><slave name='hps_0_fpgamgr.axi_slave1' start='0xFFB90000' end='0xFFB90100' /><slave name='hps_0_dcan0.axi_slave0' start='0xFFC00000' end='0xFFC01000' /><slave name='hps_0_dcan1.axi_slave0' start='0xFFC01000' end='0xFFC02000' /><slave name='hps_0_uart0.axi_slave0' start='0xFFC02000' end='0xFFC02100' /><slave name='hps_0_uart1.axi_slave0' start='0xFFC03000' end='0xFFC03100' /><slave name='hps_0_i2c0.axi_slave0' start='0xFFC04000' end='0xFFC04100' /><slave name='hps_0_i2c1.axi_slave0' start='0xFFC05000' end='0xFFC05100' /><slave name='hps_0_i2c2.axi_slave0' start='0xFFC06000' end='0xFFC06100' /><slave name='hps_0_i2c3.axi_slave0' start='0xFFC07000' end='0xFFC07100' /><slave name='hps_0_timer0.axi_slave0' start='0xFFC08000' end='0xFFC08100' /><slave name='hps_0_timer1.axi_slave0' start='0xFFC09000' end='0xFFC09100' /><slave name='hps_0_sdrctl.axi_slave0' start='0xFFC25000' end='0xFFC26000' /><slave name='hps_0_timer2.axi_slave0' start='0xFFD00000' end='0xFFD00100' /><slave name='hps_0_timer3.axi_slave0' start='0xFFD01000' end='0xFFD01100' /><slave name='hps_0_clkmgr.axi_slave0' start='0xFFD04000' end='0xFFD05000' /><slave name='hps_0_rstmgr.axi_slave0' start='0xFFD05000' end='0xFFD05100' /><slave name='hps_0_sysmgr.axi_slave0' start='0xFFD08000' end='0xFFD08400' /><slave name='hps_0_dma.axi_slave0' start='0xFFE01000' end='0xFFE02000' /><slave name='hps_0_spim0.axi_slave0' start='0xFFF00000' end='0xFFF00100' /><slave name='hps_0_spim1.axi_slave0' start='0xFFF01000' end='0xFFF01100' /><slave name='hps_0_arm_gic_0.axi_slave1' start='0xFFFEC100' end='0xFFFEC200' /><slave name='hps_0_timer.axi_slave0' start='0xFFFEC600' end='0xFFFEC700' /><slave name='hps_0_arm_gic_0.axi_slave0' start='0xFFFED000' end='0xFFFEE000' /><slave name='hps_0_L2.axi_slave0' start='0xFFFEF000' end='0xFFFF0000' /><slave name='hps_0_axi_ocram.axi_slave0' start='0xFFFF0000' end='0x100000000' /></address-map>]]></parameter>
+  <parameter name="writeSlaveAddressWidthMax" value="32" />
+  <parameter name="writeSlaveDataWidthMax" value="32" />
  </module>
  <module name="hps_0" kind="altera_hps" version="23.1" enabled="1">
   <parameter name="ABSTRACT_REAL_COMPARE_TEST" value="false" />
@@ -1023,6 +1060,15 @@
  <connection
    kind="avalon"
    version="23.1"
+   start="hps_0.h2f_lw_axi_master"
+   end="dma_1.control_port_slave">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x0020" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="23.1"
    start="master_0.master"
    end="matmul_accel_0.avalon_slave_0">
   <parameter name="arbitrationPriority" value="1" />
@@ -1050,8 +1096,26 @@
  <connection
    kind="avalon"
    version="23.1"
+   start="dma_1.read_master"
+   end="matmul_accel_0.avalon_slave_0">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x0000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="23.1"
    start="dma_0.write_master"
    end="matmul_accel_0.avalon_slave_0">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x0000" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection
+   kind="avalon"
+   version="23.1"
+   start="dma_1.write_master"
+   end="hps_0.f2h_axi_slave">
   <parameter name="arbitrationPriority" value="1" />
   <parameter name="baseAddress" value="0x0000" />
   <parameter name="defaultConnection" value="false" />
@@ -1059,6 +1123,7 @@
  <connection kind="clock" version="23.1" start="clk_0.clk" end="master_0.clk" />
  <connection kind="clock" version="23.1" start="clk_0.clk" end="pll_0.refclk" />
  <connection kind="clock" version="23.1" start="pll_0.outclk0" end="dma_0.clk" />
+ <connection kind="clock" version="23.1" start="pll_0.outclk0" end="dma_1.clk" />
  <connection
    kind="clock"
    version="23.1"
@@ -1106,6 +1171,7 @@
    version="23.1"
    start="clk_0.clk_reset"
    end="matmul_accel_0.reset" />
+ <connection kind="reset" version="23.1" start="clk_0.clk_reset" end="dma_1.reset" />
  <connection
    kind="reset"
    version="23.1"

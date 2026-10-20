@@ -1,0 +1,18 @@
+stage      311.70 us   weights    109.14 us   inputs   107.79 us
+  compute    119.91 us   readback    27.01 us (dma_1, accel -> DDR)
+  host rd    186.14 us   16384 B from staging DDR   (verify only, not in total)
+  --------------------------------------------------------
+  total      363.85 us
+  2097152 MACs: 34.978 GOP/s compute, 11.527 GOP/s end to end
+  readback is 7% of total
+
+  stage      278.42 us   weights     85.99 us   inputs   107.84 us
+  compute    104.52 us   readback    22.58 us (dma_1, accel -> DDR)
+  host rd    144.49 us   12800 B from staging DDR   (verify only, not in total)
+  --------------------------------------------------------
+  total      320.93 us
+  1638400 MACs: 31.351 GOP/s compute, 10.210 GOP/s end to end
+  readback is 7% of total
+
+  masked rows 100..111: 1518/1536 bytes nonzero, 170 distinct values
+  varied data here means rows past 99 were computed and committed; check output_loader's row_live
