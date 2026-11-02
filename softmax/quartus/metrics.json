@@ -1,0 +1,136 @@
+{
+  "original": {
+    "device": "5CSEMA5F31C6",
+    "target_period_ns": 11.111,
+    "alms": 2665,
+    "registers": 3343,
+    "block_memory_bits": 3136,
+    "m10k_blocks": 1,
+    "dsp_blocks": 0,
+    "timing": [
+      {
+        "type": "Slow 1100mV 85C Model Setup 'softmax_clk'",
+        "slack_ns": -67.41
+      },
+      {
+        "type": "Slow 1100mV 85C Model Hold 'softmax_clk'",
+        "slack_ns": 0.343
+      },
+      {
+        "type": "Slow 1100mV 85C Model Minimum Pulse Width 'softmax_clk'",
+        "slack_ns": 4.422
+      },
+      {
+        "type": "Slow 1100mV 0C Model Setup 'softmax_clk'",
+        "slack_ns": -69.583
+      },
+      {
+        "type": "Slow 1100mV 0C Model Hold 'softmax_clk'",
+        "slack_ns": 0.314
+      },
+      {
+        "type": "Slow 1100mV 0C Model Minimum Pulse Width 'softmax_clk'",
+        "slack_ns": 4.371
+      },
+      {
+        "type": "Fast 1100mV 85C Model Setup 'softmax_clk'",
+        "slack_ns": -32.146
+      },
+      {
+        "type": "Fast 1100mV 85C Model Hold 'softmax_clk'",
+        "slack_ns": 0.181
+      },
+      {
+        "type": "Fast 1100mV 85C Model Minimum Pulse Width 'softmax_clk'",
+        "slack_ns": 4.355
+      },
+      {
+        "type": "Fast 1100mV 0C Model Setup 'softmax_clk'",
+        "slack_ns": -29.957
+      },
+      {
+        "type": "Fast 1100mV 0C Model Hold 'softmax_clk'",
+        "slack_ns": 0.171
+      },
+      {
+        "type": "Fast 1100mV 0C Model Minimum Pulse Width 'softmax_clk'",
+        "slack_ns": 4.345
+      }
+    ],
+    "all_reported_slacks_nonnegative": false,
+    "minimum_fmax_mhz": 12.39,
+    "sha256": {
+      "fit.summary": "a8416fb81f46769d2673fdfaf42282b39eb33d419479c1e4338e5ebf319e48a8",
+      "sta.summary": "f87821f101a577cfe4952c7c89f1dd5b2e2eda5b993b5eddf5c1f050a77b4319",
+      "sta.rpt": "66419b1eb86486efb64b543fadd8b0e797e33b230414426a03849d731fe04ad6",
+      "core_source": "74b6043817d687253592baadf2d20770802c23d6f816055f097a0a94dada2d33"
+    }
+  },
+  "iterative": {
+    "device": "5CSEMA5F31C6",
+    "target_period_ns": 11.111,
+    "alms": 222,
+    "registers": 264,
+    "block_memory_bits": 71808,
+    "m10k_blocks": 10,
+    "dsp_blocks": 0,
+    "timing": [
+      {
+        "type": "Slow 1100mV 85C Model Setup 'softmax_clk'",
+        "slack_ns": 3.248
+      },
+      {
+        "type": "Slow 1100mV 85C Model Hold 'softmax_clk'",
+        "slack_ns": 0.235
+      },
+      {
+        "type": "Slow 1100mV 85C Model Minimum Pulse Width 'softmax_clk'",
+        "slack_ns": 4.411
+      },
+      {
+        "type": "Slow 1100mV 0C Model Setup 'softmax_clk'",
+        "slack_ns": 3.188
+      },
+      {
+        "type": "Slow 1100mV 0C Model Hold 'softmax_clk'",
+        "slack_ns": 0.219
+      },
+      {
+        "type": "Slow 1100mV 0C Model Minimum Pulse Width 'softmax_clk'",
+        "slack_ns": 4.364
+      },
+      {
+        "type": "Fast 1100mV 85C Model Setup 'softmax_clk'",
+        "slack_ns": 6.383
+      },
+      {
+        "type": "Fast 1100mV 85C Model Hold 'softmax_clk'",
+        "slack_ns": 0.14
+      },
+      {
+        "type": "Fast 1100mV 85C Model Minimum Pulse Width 'softmax_clk'",
+        "slack_ns": 4.354
+      },
+      {
+        "type": "Fast 1100mV 0C Model Setup 'softmax_clk'",
+        "slack_ns": 6.697
+      },
+      {
+        "type": "Fast 1100mV 0C Model Hold 'softmax_clk'",
+        "slack_ns": 0.129
+      },
+      {
+        "type": "Fast 1100mV 0C Model Minimum Pulse Width 'softmax_clk'",
+        "slack_ns": 4.344
+      }
+    ],
+    "all_reported_slacks_nonnegative": true,
+    "minimum_fmax_mhz": 90.0,
+    "sha256": {
+      "fit.summary": "1d3c6ad045aedb0763639782c3486274aa00251a260c324bd04d3b8dc43b1d10",
+      "sta.summary": "26ce3669a81962905123f749e8853df2f353307a8306fc86b95ce898042375ea",
+      "sta.rpt": "27ccd8fc21b7d6af334be16a4bd9a61bf978e76b22b29e38d017d9c77bbb04ca",
+      "core_source": "f2620c36eb4e5e9499eb61bba21d40ba93f57a2a072f60001a3fa2e6729239e5"
+    }
+  }
+}

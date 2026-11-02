@@ -1,0 +1,29 @@
+{
+  "config": {
+    "score_bits": 16,
+    "fractional_bits": 8,
+    "cutoff": 12,
+    "exponential_bits": 16,
+    "probability_bits": 16,
+    "score_scale": 0.00390625,
+    "difference_bits": 17,
+    "lut_entries": 3073,
+    "sum_bits": 24,
+    "numerator_bits": 32,
+    "rounded_numerator_bits": 33,
+    "max_row_length": 196,
+    "score_rounding": "nearest, ties to even; signed saturation",
+    "lut_rounding": "nearest, ties to even",
+    "normalization": "(exp_code * probability_max + sum//2) // sum; half up",
+    "tail_policy": "differences greater than cutoff are zero, not clamped to last ROM entry",
+    "probability_scale": 1.5259021896696422e-05
+  },
+  "rows": 147,
+  "elements": 8666,
+  "synthetic_rows": 47,
+  "real_rows": 100,
+  "seed": 20261102,
+  "physical_rom_entries": 4096,
+  "useful_rom_entries": 3073,
+  "source": "10 rows sampled per captured image, including calibration and validation; no tuning"
+}
