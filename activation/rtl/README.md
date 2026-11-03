@@ -1,5 +1,18 @@
 # Standalone int8 GELU RTL
 
+## Integrated readout versus standalone modules
+
+`accel_top.sv` instantiates `matmul_gelu_readout.v` on the output RAM's host
+read path. With DATA_WIDTH=128, its elaborated loop processes 16 int8 lanes
+in parallel. It includes a 256-byte row-bias buffer loaded through host writes
+at 0x8000..0x80ff; 0x8100 enables bias and GELU. See `INTEGRATION.md` for
+alignment, geometry, scale, and software requirements.
+
+`tb_matmul_gelu_readout.sv` tests that readout module with mocked synchronous
+RAM data. It does not instantiate accel_top or run a matmul. A passing result
+therefore does not establish full-system correctness or timing at 90 MHz.
+The standalone modules described below still process one byte per clock.
+
 `gelu_int8.sv` is a 256x8 ROM with a one-entry ready/valid output buffer.
 An input is accepted on a rising edge when in_valid && in_ready. Its result is
 available after that edge. Output transfers on out_valid && out_ready; output
@@ -25,7 +38,7 @@ project file and verify ROM initialization and synthesis reports during integrat
 sign-extends both to 9 bits, adds, clips to [-128,127], and feeds the GELU ROM.
 Both operands MUST have the same scale as the LUT input (zero points zero).
 This is the user-selected contract; deployment scales still need calibration.
-No bias storage or channel selection is included: upstream must supply the
+No bias storage or channel selection is included in this standalone wrapper: upstream must supply the
 correct bias and hold BOTH operands and in_valid stable while in_ready is low.
 The wrapper has the same latency and handshake as gelu_int8.
 
@@ -55,5 +68,5 @@ Do not assume that the matmul Q0.16 multiplier is its real-value output scale.
 
 Next integration decisions: matmul output scale, bias units/width, GELU input
 and output scales, rounding, bias channel ordering, and stream handshake.
-A 128-bit interface carries 16 bytes; this first module processes one byte per
-cycle. Parallel lanes or serialization can be added after functional validation.
+A 128-bit interface carries 16 bytes; this standalone module processes one byte
+per cycle. The integrated readout described above already implements parallel lanes.

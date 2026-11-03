@@ -1,0 +1,37 @@
+{
+  "date": "2026-11-03",
+  "tool": "Quartus Prime Lite 18.1",
+  "device": "5CSEMA5F31C6",
+  "target_period_ns": 11.111,
+  "scope": "Standalone registered virtual I/O harness; not integrated SoC signoff",
+  "runs": {
+    "build_original": {
+      "setup_slack_ns": -8.769,
+      "hold_slack_ns": 0.174,
+      "minimum_pulse_width_slack_ns": 4.373,
+      "alms": 1707,
+      "registers": 2509,
+      "lowest_slow_fmax_mhz": 50.3,
+      "snapshot_sha256": "c7b647b7d8317847e643731bbac68ba3259542be68c0af91629115ce6302fc4f",
+      "report_sha256": {
+        "timing": "3efb7a80c50cf8a805b392181a02fe0edefbe873c859366ad3bd2f86b48d1890",
+        "fitter": "f5cbb4f16bd820476fa4a2bb1a53af083bd0afb620183ce7ae655cb9c08c5974",
+        "report": "04105a9e610ef3cf55d55a2205af53bc48b13e511fdbf4aae7193cdbb498a382"
+      }
+    },
+    "build_current": {
+      "setup_slack_ns": 1.925,
+      "hold_slack_ns": 0.172,
+      "minimum_pulse_width_slack_ns": 4.373,
+      "alms": 957,
+      "registers": 1493,
+      "lowest_slow_fmax_mhz": 108.86,
+      "snapshot_sha256": "010864519d14267b32835f6352d580ae143c804f553b0d3f20640ad64388f8d8",
+      "report_sha256": {
+        "timing": "fac56fea7fa040e1b80d2d1891e9aeb0f7b7c802d20b145e1c7624da77de714a",
+        "fitter": "ae886895f5fd4e54eb85f207bc6285cd61b1e22d700ec8b9af6aba931040faf4",
+        "report": "17db4b3696f5569c32abb9ac669200a0ec9dd5d8f92478b0a3157bd4e1a0df26"
+      }
+    }
+  }
+}

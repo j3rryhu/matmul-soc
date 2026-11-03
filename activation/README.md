@@ -36,6 +36,8 @@ input 32 represents 1 and maps to 27 (real 0.84375).
 Add bias and finish accumulation before applying GELU. This LUT assumes its
 input has already been quantized to the documented input scale. It cannot
 recover information lost during matmul's partial-sum saturation. It does not
-modify or connect to the existing FPGA datapath. A 128-bit stream would contain
-16 independent input elements; ROM replication or serialization is a later RTL
-design choice. Validate layer outputs and model predictions before integration.
+itself modify or connect to the existing FPGA datapath. The RTL integration in
+`rtl/matmul_gelu_readout.v` is instantiated by `matmul_accel/accel_top.sv` and
+processes 16 independent elements in parallel at DATA_WIDTH=128. See
+`rtl/INTEGRATION.md` for its bias buffer, host loading, and restrictions.
+Validate layer outputs and model predictions before deployment.
