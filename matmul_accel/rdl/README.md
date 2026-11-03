@@ -7,17 +7,29 @@ at `CTRL_BASE = 0x0000_0000`, size `0x100` (see `rtl/accel_top.sv`).
 | Offset | Register        | Field                | Bits   | Access | Description |
 |--------|-----------------|-----------------------|--------|--------|-------------|
 | 0x00   | CONTROL         | `matmul_start`        | [0]    | sw=w, single-pulse | A new matmul is starting: latches `WEIGHT_ROWS`/`WEIGHT_COLS` into `weight_ctrl` and resets its block position to (0,0). |
-| 0x04   | WEIGHT_ROWS     | `value`               | [15:0] | sw=w   | Contraction (reduction) dimension size - feeds pe_array's `ARRAY_ROWS` axis, which `pe.v`'s `b_in` cascade sums. Not "rows of the weight matrix on paper" - see note below. |
-| 0x08   | WEIGHT_COLS     | `value`               | [15:0] | sw=w   | Output dimension size - feeds `ARRAY_COLS`; values here stay separate (one result per array column). |
-| 0x0C   | INPUT_MAX_ADDR  | `value`               | [9:0]  | sw=w   | Max `input_buffer` read address, fed to `input_dispatch.i_max_addr`. |
-| 0x10   | INPUT_COLS      | `value`               | [15:0] | sw=w   | Number of columns of the input (activation) matrix. Feeds `output_loader.total_rows`. |
-| 0x14   | STATUS          | `busy`                | [0]    | sw=r, hw=w | Compute running (loading weights, streaming, or draining). |
+| 0x10   | WEIGHT_ROWS     | `value`               | [15:0] | sw=w   | Contraction (reduction) dimension size - feeds pe_array's `ARRAY_ROWS` axis, which `pe.v`'s `b_in` cascade sums. Not "rows of the weight matrix on paper" - see note below. |
+| 0x20   | WEIGHT_COLS     | `value`               | [15:0] | sw=w   | Output dimension size - feeds `ARRAY_COLS`; values here stay separate (one result per array column). |
+| 0x30   | INPUT_MAX_ADDR  | `value`               | [9:0]  | sw=w   | Max `input_buffer` read address, fed to `input_dispatch.i_max_addr`. |
+| 0x40   | INPUT_COLS      | `value`               | [15:0] | sw=w   | Number of columns of the input (activation) matrix. Feeds `output_loader.total_rows`. |
+| 0x50   | STATUS          | `busy`                | [0]    | sw=r, hw=w | Compute running (loading weights, streaming, or draining). |
 |        |                 | `done`                | [1]    | sw=r, hw=w | Whole matmul finished: every block committed and drained into `output_buffer`. |
-| 0x18   | OUTPUT_SCALE    | `value`               | [15:0] | sw=w   | Q0.16 fixed point (unsigned, 0 integer + 16 fractional bits, range `[0,1)` - actual scale is `value/65536`). Rescales `pe_array`'s 32-bit accumulator (`ACC_WIDTH`, see `pe.v`) back down to int8 under the quantization scheme this array targets: `output_loader` multiplies each arriving psum by this factor, arithmetic-shifts right by 16, and saturates to `[-128,127]` before writing `output_buffer` (see `output_loader.v`). |
+| 0x60   | OUTPUT_SCALE    | `value`               | [15:0] | sw=w   | Q0.16 fixed point (unsigned, 0 integer + 16 fractional bits, range `[0,1)` - actual scale is `value/65536`). Rescales `pe_array`'s 32-bit accumulator (`ACC_WIDTH`, see `pe.v`) back down to int8 under the quantization scheme this array targets: `output_loader` multiplies each arriving psum by this factor, arithmetic-shifts right by 16, and saturates to `[-128,127]` before writing `output_buffer` (see `output_loader.v`). |
+| 0x70   | TILE_CFG        | `tile_r`              | [14:0] | sw=w   | Output tile row index: the result starts at canvas row `tile_r * WEIGHT_ROWS`. |
+|        |                 | `tile_c`              | [29:15]| sw=w   | Output tile column index: the result starts at canvas column `tile_c * INPUT_COLS`. |
+|        |                 | `use_prev_out`        | [30]   | sw=w   | 1 = the first contraction block accumulates onto the output canvas instead of overwriting it. See the top-level README, "Output canvas and tiling". |
+| 0x80   | TILED_MAT_DIM   | `tiled_c_dim`         | [15:0] | sw=w   | Output canvas width: the whole (tiled) result's column count; 0 = use `INPUT_COLS`. Sets the canvas row pitch for both the writes and the read remap. |
 
 Bit positions above 0 for multi-bit/later fields are assigned automatically
 by PeakRDL in declaration order; re-check `ctrl_rf_rf.sv` after regenerating
 if fields are reordered.
+
+**Regenerate with `python_gen.py` only.** PeakRDL-verilog 1.0.0 lets a
+software read-to-clear win over a hardware set in the same cycle, and it
+ignores SystemRDL's `precedence` property, so `STATUS.done` would lose a
+completion that lands on a `STATUS` poll. `python_gen.py` patches the
+generated `ctrl_rf_rf.sv` after export so the hardware set wins, and fails
+loudly if the generated code no longer matches the patch. Running PeakRDL
+by hand skips the patch.
 
 **Naming note:** `WEIGHT_ROWS`/`WEIGHT_COLS` name which `pe_array` axis a
 dimension loads into, not "row/col of the weight matrix as you'd write it

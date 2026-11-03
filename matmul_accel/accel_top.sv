@@ -56,24 +56,30 @@ module accel_top #(
     localparam logic [31:0] CTRL_BASE = 32'h0000_0000, CTRL_SIZE = 32'h0000_0100;
     localparam logic [31:0] WBUF_BASE = 32'h0000_1000, WBUF_SIZE = 32'h0000_4000; // weight_buffer (banked), 14-bit addr
     localparam logic [31:0] IBUF_BASE = 32'h0000_5000, IBUF_SIZE = 32'h0000_4000; // input_buffer (banked),  14-bit addr
-    localparam logic [31:0] OBUF_BASE = 32'h0000_9000, OBUF_SIZE = 32'h0000_4000; // output_buffer (banked), 14-bit addr
+    localparam logic [31:0] OBUF_BASE = 32'h0000_9000, OBUF_SIZE = 32'h0001_0000; // output_buffer (256x256 canvas), 16-bit addr
 
     // ---- buffer geometry ----
     // Per-bank depths are fixed by the generated RAM IP; the bank *count*
     // follows the array, so the flat (software-visible) address width of
-    // each banked buffer scales with ARRAY_ROWS/ARRAY_COLS. All three
-    // buffers use 1KB banks, which at 16 banks fill each 16KB window
-    // exactly - enough for a 128x128 W times a 128x128 X (8 output-row
-    // blocks x 128 columns per output bank, 8 contraction bands x 128
-    // columns per input bank, 8 rows of 128 weights per weight bank).
+    // each banked buffer scales with ARRAY_ROWS/ARRAY_COLS. The weight and
+    // input buffers use 1KB banks, which at 16 banks fill each 16KB window
+    // exactly - enough for one 128x128 W times a 128x128 X (8 rows of 128
+    // weights per weight bank, 8 contraction bands x 128 columns per input
+    // bank). The output buffer uses 4KB banks, filling its 64KB window: a
+    // 256x256 canvas, i.e. 2x2 tiles of 128x128 results (see below).
     // Growing a depth or the array means growing the matching *_SIZE
     // window above (the check below catches a window that is too small).
     localparam int WBUF_BANK_ADDR_WIDTH = 10;  // weight_buffer IP depth = 1024 entries/bank
     localparam int IBUF_BANK_ADDR_WIDTH = 10;  // input_buffer IP depth  = 1024 entries/bank
-    localparam int OBUF_BANK_ADDR_WIDTH = 10;  // output_buffer IP depth = 1024 entries/bank
+    localparam int OBUF_BANK_ADDR_WIDTH = 12;  // output_buffer IP depth = 4096 entries/bank
     localparam int WBUF_ADDR_WIDTH      = $clog2(ARRAY_ROWS) + WBUF_BANK_ADDR_WIDTH;
     localparam int IBUF_ADDR_WIDTH      = $clog2(ARRAY_ROWS) + IBUF_BANK_ADDR_WIDTH;
     localparam int OBUF_ADDR_WIDTH      = $clog2(ARRAY_COLS) + OBUF_BANK_ADDR_WIDTH;
+
+    // ---- output canvas ----
+    // output_buffer holds one int8 canvas, TILED_MAT_DIM bytes wide (the
+    // whole result's column count; 0 means INPUT_COLS, the untiled case),
+    // rows padded to whole host words. See the output_buffer section.
 
     // Each window must cover every bank, or the top banks are unreachable
     // from the host. Elaboration-time check; fails the build, not the sim.
@@ -115,14 +121,18 @@ module accel_top #(
     logic [10:0] burst_cnt_buf;
     logic [AVS_ADDR_WIDTH-1:0] addr_buf;
     wire  read_valid;
+    wire  rf_data_valid;     // a CTRL beat is in ctrl_rdata this cycle (ctrl_rf section)
     logic obuf_data_valid;   // an OBUF beat is in obuf_ext_q this cycle (output_buffer section)
     logic obuf_pipe_busy;    // OBUF beats still in the remap/RAM pipeline
+    wire [AVS_DATA_WIDTH-1:0] read_data;   // the beat's data (read mux, further down)
     assign read_valid = rf_data_valid || obuf_data_valid;
-    // An output-buffer read returns each beat OBUF_RD_LAT cycles after the
-    // FSM counts it out (its address goes through buf_addr_remap first), so
-    // no new command is taken until those beats have drained: one read in
-    // flight at a time (maximumPendingReadTransactions = 1), and a CTRL beat
-    // can never overtake or land on top of a late OBUF beat.
+    // One read in flight at a time (maximumPendingReadTransactions = 1): a
+    // new read stalls a cycle before it is accepted, and burst_busy holds
+    // off every command for the rest of a multi-beat burst. An output-buffer
+    // read also returns each beat OBUF_RD_LAT cycles after the FSM counts it
+    // out (its address goes through buf_addr_remap first), so obuf_pipe_busy
+    // holds off the next command until those beats have drained - a CTRL
+    // beat can never overtake or land on top of a late OBUF beat.
     assign avs_waitrequest = (avs_read && !accepted) || burst_busy || obuf_pipe_busy;
 
     // An Avalon master holds write/address/writedata stable until
@@ -203,7 +213,8 @@ module accel_top #(
     // ============================================================
     logic [15:0] weight_cols;           // N: weight cols (from ctrl_rf, below)
     logic [9:0]  input_max_addr;        // M: per-band input reads (from ctrl_rf, below)
-    logic [15:0] input_cols;            // M: output columns (from ctrl_rf, below) - output row length/pitch
+    logic [15:0] input_cols;            // M: output columns per matmul (from ctrl_rf, below) - the tile width
+    logic [15:0] tiled_c_dim;           // TILED_MAT_DIM: whole result's columns, 0 = INPUT_COLS (from ctrl_rf, below)
 
     localparam int WBUF_ROWW_WIDTH = WBUF_BANK_ADDR_WIDTH - WORD_SHIFT + 1;  // row pitch up to a whole bank
     localparam int IBUF_ROWW_WIDTH = IBUF_BANK_ADDR_WIDTH - WORD_SHIFT + 1;
@@ -309,20 +320,24 @@ module accel_top #(
 
     // ============================================================
     // output_buffer - banked ARRAY_COLS-ways (one bank per p_out lane, see
-    // output_buffer_32_bank.v). output_loader drives each bank's
-    // read+write directly; Avalon reads through a single muxed external
-    // port, read-only. Entries are int8 (PE_DATA_WIDTH) - output_loader
-    // rescales pe_array's wider ACC_DATA_WIDTH accumulator down to int8
-    // before it ever reaches output_buffer (see output_loader.v).
+    // output_buffer_32_bank.v), holding the output canvas. output_loader
+    // drives each bank's read+write directly; Avalon reads through a single
+    // muxed external port, read-only. Entries are int8 (PE_DATA_WIDTH) -
+    // output_loader rescales pe_array's wider ACC_DATA_WIDTH accumulator
+    // down to int8 before it ever reaches output_buffer (see
+    // output_loader.v).
     //
-    // Host reads go through the same buf_addr_remap as the WBUF/IBUF
-    // writes, so software reads Y (K x M) as ONE contiguous row-major
-    // image, every row padded to a whole AVS_DATA_WIDTH word:
-    //   OBUF: Y (K x M), row pitch = roundup(INPUT_COLS, BYTES_PER_WORD)
-    // Row k lives in bank k % ARRAY_ROWS at offset (k / ARRAY_ROWS)*pitch,
-    // which is where output_loader writes it (it uses the same padded
-    // pitch). The remap reads INPUT_COLS live, so INPUT_COLS must still
-    // hold the matmul's M when the result is read back.
+    // The canvas is W = TILED_MAT_DIM bytes wide - the column count of the
+    // whole result, which a tiled result spreads over several matmuls - or
+    // INPUT_COLS when TILED_MAT_DIM is 0 (one untiled matmul). Rows are
+    // padded to a whole AVS_DATA_WIDTH word, pitch = roundup(W,
+    // BYTES_PER_WORD), and canvas row R lives in bank R % ARRAY_ROWS at byte
+    // offset (R / ARRAY_ROWS)*pitch + column. output_loader writes there
+    // with the pitch latched at matmul_start; host reads go through the same
+    // buf_addr_remap as the WBUF/IBUF writes, so software reads the canvas
+    // as ONE contiguous row-major image, row R at OBUF_BASE + R*pitch. The
+    // read remap uses the live width, so it must not change from the first
+    // tile's matmul_start until the canvas has been read back.
     //
     // Read timing: the remap puts two register stages ahead of the RAM, so
     // each OBUF beat reaches obuf_ext_q OBUF_RD_LAT cycles after the read
@@ -334,8 +349,9 @@ module accel_top #(
     localparam int OBUF_ROWW_WIDTH = OBUF_BANK_ADDR_WIDTH - WORD_SHIFT + 1;  // row pitch up to a whole bank
     localparam int OBUF_RD_LAT     = 2;   // buf_addr_remap pipeline depth - must be >= 2 (see obuf_beat_sr)
 
+    wire [15:0] obuf_canvas_cols = (tiled_c_dim != 16'd0) ? tiled_c_dim : input_cols;
     wire [OBUF_BANK_ADDR_WIDTH:0] obuf_pitch_words =
-        ({1'b0, input_cols[OBUF_BANK_ADDR_WIDTH-1:0]} + (BYTES_PER_WORD-1)) >> WORD_SHIFT;
+        ({1'b0, obuf_canvas_cols[OBUF_BANK_ADDR_WIDTH-1:0]} + (BYTES_PER_WORD-1)) >> WORD_SHIFT;
 
     // host word fetched this cycle: the burst's first word while the read
     // is still stalled, then one word per delivering cycle (one word past
@@ -429,12 +445,15 @@ module accel_top #(
     // write puts a phantom beat on the read channel. A write issued the
     // cycle after a read is accepted (which Avalon allows) then looks like
     // that read's valid stretching one cycle longer than the burst.
-    wire        rf_data_valid = rd_burst_on && sel_ctrl_r;
+    assign      rf_data_valid = rd_burst_on && sel_ctrl_r;
 
     logic        matmul_start;          // pulse: latch WEIGHT_ROWS/WEIGHT_COLS, reset block position
     logic [15:0] weight_rows;           // K: weight rows (contraction dimension)
     // weight_cols / input_max_addr / input_cols are declared above, with the buffer remap
     logic [15:0] output_scale;          // Q0.16 rescale factor (value/65536, range [0,1)) for pe_array's ACC_WIDTH accumulator
+    logic [14:0] tile_r_cfg;            // TILE_CFG.tile_r       - output tile row index (see the tile latch below)
+    logic [14:0] tile_c_cfg;            // TILE_CFG.tile_c       - output tile column index
+    logic        use_prev_out_cfg;      // TILE_CFG.use_prev_out - accumulate onto the canvas from the first block
     logic        weight_ctrl_busy;      // weight_ctrl/weight_loader busy, for STATUS.busy
     logic        weight_ctrl_done;      // PULSE: last block committed and its input band fully streamed in
 
@@ -495,6 +514,10 @@ module accel_top #(
         .INPUT_MAX_ADDR_value_q  (input_max_addr),
         .INPUT_COLS_value_q      (input_cols),  // TODO: drive compute datapath (not yet consumed by input_dispatch)
         .OUTPUT_SCALE_value_q    (output_scale),  // Q0.16 rescale factor, consumed by output_loader's requantize stage
+        .TILE_CFG_tile_r_q       (tile_r_cfg),
+        .TILE_CFG_tile_c_q       (tile_c_cfg),
+        .TILE_CFG_use_prev_out_q (use_prev_out_cfg),
+        .TILED_MAT_DIM_tiled_c_dim_q (tiled_c_dim),
 
         .STATUS_busy_wdata              (matmul_busy),
         .STATUS_done_we                 (matmul_done_pulse),
@@ -509,11 +532,51 @@ module accel_top #(
     );
 
     // ============================================================
+    // Output tile placement (TILE_CFG), latched at matmul_start so software
+    // can program the next tile while this matmul runs.
+    //
+    // A matmul writes its K x M result into the canvas with its top-left
+    // corner at canvas row tile_r*K, column tile_c*M, where K = WEIGHT_ROWS
+    // and M = INPUT_COLS of that same matmul. So every tile of one output
+    // uses the same K and M: zero-pad an edge tile rather than shrinking it.
+    // The row offset must be a multiple of ARRAY_ROWS so that PE row r keeps
+    // writing bank r - with tile_r > 0, K must be a multiple of ARRAY_ROWS
+    // (the low bits are dropped). The column offset can be anything:
+    // output_loader writes single bytes. Nothing checks that the tile lies
+    // inside the canvas. The canvas row pitch is latched here too, for
+    // output_loader's write addresses.
+    //
+    // use_prev_out makes the matmul's first contraction block accumulate
+    // into what the canvas already holds, instead of overwriting it, so a
+    // contraction too long for one matmul can be split across several.
+    // ============================================================
+    // operands cut to the canvas index width: no canvas row or column index
+    // inside the buffer needs more, and it keeps both multipliers small
+    localparam int CANVAS_IDX_W = OBUF_BANK_ADDR_WIDTH + 1;
+    logic [15:0]                     tile_row_blk;    // first canvas row / ARRAY_ROWS
+    logic [OBUF_BANK_ADDR_WIDTH-1:0] tile_col_off;    // first canvas column (bytes)
+    logic                            use_prev_out;
+    logic [OBUF_BANK_ADDR_WIDTH:0]   obuf_row_pitch;  // canvas row pitch (bytes), for output_loader
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            tile_row_blk   <= '0;
+            tile_col_off   <= '0;
+            use_prev_out   <= 1'b0;
+            obuf_row_pitch <= '0;
+        end
+        else if (matmul_start) begin
+            tile_row_blk   <= (tile_r_cfg[CANVAS_IDX_W-1:0] * weight_rows[CANVAS_IDX_W-1:0]) >> $clog2(ARRAY_ROWS);
+            tile_col_off   <= tile_c_cfg[CANVAS_IDX_W-1:0] * input_cols[CANVAS_IDX_W-1:0];
+            use_prev_out   <= use_prev_out_cfg;
+            obuf_row_pitch <= obuf_pitch_words << WORD_SHIFT;
+        end
+    end
+
+    // ============================================================
     // Avalon read mux / waitrequest
     // ============================================================
     // OBUF and CTRL beats never share a cycle: a CTRL read cannot start
     // while obuf_pipe_busy, and an OBUF beat is only ever valid then.
-    wire [AVS_DATA_WIDTH-1:0] read_data;
     assign read_data = obuf_data_valid ? obuf_ext_q :
                        rf_data_valid   ? ctrl_rdata : '0;
 
@@ -632,7 +695,6 @@ module accel_top #(
         .ARRAY_COLS     (ARRAY_COLS),
         .ARRAY_ROWS     (ARRAY_ROWS),
         .ROW_ADDR_WIDTH (OBUF_BANK_ADDR_WIDTH),
-        .ROW_ALIGN      (BYTES_PER_WORD),   // padded row pitch, matching the host read remap
         .RD_DATA_WIDTH  (AVS_DATA_WIDTH),
         .DIM_WIDTH       (16)
     ) u_output_loader (
@@ -647,6 +709,11 @@ module accel_top #(
         .committed_k_blk_idx   (committed_k_blk_idx),
         .committed_n_blk_idx   (committed_n_blk_idx),
         .committed_first_k_blk (committed_first_k_blk),
+
+        .tile_row_blk   (tile_row_blk),
+        .tile_col_off   (tile_col_off),
+        .use_prev_out   (use_prev_out),
+        .row_pitch      (obuf_row_pitch),
 
         .output_scale   (output_scale),
 

@@ -209,8 +209,8 @@
   <parameter name="readSlaveDataWidthMax" value="32" />
   <parameter name="softresetEnable" value="true" />
   <parameter name="useRegistersForFIFO" value="false" />
-  <parameter name="writeAddressMap"><![CDATA[<address-map><slave name='matmul_accel_0.avalon_slave_0' start='0x0' end='0x10000' /></address-map>]]></parameter>
-  <parameter name="writeSlaveAddressWidthMax" value="16" />
+  <parameter name="writeAddressMap"><![CDATA[<address-map><slave name='matmul_accel_0.avalon_slave_0' start='0x0' end='0x20000' /></address-map>]]></parameter>
+  <parameter name="writeSlaveAddressWidthMax" value="17" />
   <parameter name="writeSlaveDataWidthMax" value="128" />
  </module>
  <module name="dma_1" kind="altera_avalon_dma" version="23.1" enabled="1">
@@ -225,8 +225,8 @@
   <parameter name="fifoDepth" value="4096" />
   <parameter name="maxBurstSize" value="1024" />
   <parameter name="minimumDmaTransactionRegisterWidth" value="32" />
-  <parameter name="readAddressMap"><![CDATA[<address-map><slave name='matmul_accel_0.avalon_slave_0' start='0x0' end='0x10000' /></address-map>]]></parameter>
-  <parameter name="readSlaveAddressWidthMax" value="16" />
+  <parameter name="readAddressMap"><![CDATA[<address-map><slave name='matmul_accel_0.avalon_slave_0' start='0x0' end='0x20000' /></address-map>]]></parameter>
+  <parameter name="readSlaveAddressWidthMax" value="17" />
   <parameter name="readSlaveDataWidthMax" value="128" />
   <parameter name="softresetEnable" value="true" />
   <parameter name="useRegistersForFIFO" value="false" />
@@ -782,7 +782,7 @@
   <parameter name="ACC_DATA_WIDTH" value="32" />
   <parameter name="ARRAY_COLS" value="16" />
   <parameter name="ARRAY_ROWS" value="16" />
-  <parameter name="AVS_ADDR_WIDTH" value="16" />
+  <parameter name="AVS_ADDR_WIDTH" value="17" />
   <parameter name="AVS_DATA_WIDTH" value="128" />
   <parameter name="PE_DATA_WIDTH" value="8" />
  </module>

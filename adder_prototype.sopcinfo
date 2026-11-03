@@ -5,11 +5,11 @@
  version="1.0"
  fabric="QSYS">
  <!-- Format version 23.1 991 (Future versions may contain additional information.) -->
- <!-- 2026.10.19.21:30:52 -->
+ <!-- 2026.11.01.22:14:27 -->
  <!-- A collection of modules and connections -->
  <parameter name="AUTO_GENERATION_ID">
   <type>java.lang.Integer</type>
-  <value>1792459851</value>
+  <value>1793589265</value>
   <derived>false</derived>
   <enabled>true</enabled>
   <visible>false</visible>
@@ -1796,7 +1796,7 @@ the requested settings for a module instance. -->
   </parameter>
   <parameter name="writeAddressMap">
    <type>java.lang.String</type>
-   <value><![CDATA[<address-map><slave name='matmul_accel_0.avalon_slave_0' start='0x0' end='0x10000' /></address-map>]]></value>
+   <value><![CDATA[<address-map><slave name='matmul_accel_0.avalon_slave_0' start='0x0' end='0x20000' /></address-map>]]></value>
    <derived>false</derived>
    <enabled>true</enabled>
    <visible>false</visible>
@@ -1806,7 +1806,7 @@ the requested settings for a module instance. -->
   </parameter>
   <parameter name="writeSlaveAddressWidthMax">
    <type>int</type>
-   <value>16</value>
+   <value>17</value>
    <derived>false</derived>
    <enabled>true</enabled>
    <visible>false</visible>
@@ -1858,7 +1858,7 @@ the requested settings for a module instance. -->
   </parameter>
   <parameter name="writeMaximumSlaveSpan">
    <type>long</type>
-   <value>65536</value>
+   <value>131072</value>
    <derived>true</derived>
    <enabled>true</enabled>
    <visible>false</visible>
@@ -2994,7 +2994,7 @@ parameters are a RESULT of the module parameters. -->
    <port>
     <name>write_address</name>
     <direction>Output</direction>
-    <width>16</width>
+    <width>17</width>
     <role>address</role>
    </port>
    <port>
@@ -3039,7 +3039,7 @@ parameters are a RESULT of the module parameters. -->
     <slaveName>avalon_slave_0</slaveName>
     <name>matmul_accel_0.avalon_slave_0</name>
     <baseAddress>0</baseAddress>
-    <span>65536</span>
+    <span>131072</span>
    </memoryBlock>
   </interface>
  </module>
@@ -3181,7 +3181,7 @@ the requested settings for a module instance. -->
   </parameter>
   <parameter name="readAddressMap">
    <type>java.lang.String</type>
-   <value><![CDATA[<address-map><slave name='matmul_accel_0.avalon_slave_0' start='0x0' end='0x10000' /></address-map>]]></value>
+   <value><![CDATA[<address-map><slave name='matmul_accel_0.avalon_slave_0' start='0x0' end='0x20000' /></address-map>]]></value>
    <derived>false</derived>
    <enabled>true</enabled>
    <visible>false</visible>
@@ -3191,7 +3191,7 @@ the requested settings for a module instance. -->
   </parameter>
   <parameter name="readSlaveAddressWidthMax">
    <type>int</type>
-   <value>16</value>
+   <value>17</value>
    <derived>false</derived>
    <enabled>true</enabled>
    <visible>false</visible>
@@ -3265,7 +3265,7 @@ the requested settings for a module instance. -->
   </parameter>
   <parameter name="readMaximumSlaveSpan">
    <type>long</type>
-   <value>65536</value>
+   <value>131072</value>
    <derived>true</derived>
    <enabled>true</enabled>
    <visible>false</visible>
@@ -4096,7 +4096,7 @@ parameters are a RESULT of the module parameters. -->
    <port>
     <name>read_address</name>
     <direction>Output</direction>
-    <width>16</width>
+    <width>17</width>
     <role>address</role>
    </port>
    <port>
@@ -4141,7 +4141,7 @@ parameters are a RESULT of the module parameters. -->
     <slaveName>avalon_slave_0</slaveName>
     <name>matmul_accel_0.avalon_slave_0</name>
     <baseAddress>0</baseAddress>
-    <span>65536</span>
+    <span>131072</span>
    </memoryBlock>
   </interface>
   <interface name="write_master" kind="avalon_master" version="23.1">
@@ -20626,7 +20626,7 @@ parameters are a RESULT of the module parameters. -->
     <slaveName>avalon_slave_0</slaveName>
     <name>matmul_accel_0.avalon_slave_0</name>
     <baseAddress>0</baseAddress>
-    <span>65536</span>
+    <span>131072</span>
    </memoryBlock>
    <memoryBlock>
     <isBridge>false</isBridge>
@@ -47446,7 +47446,7 @@ parameters are a RESULT of the module parameters. -->
     <slaveName>avalon_slave_0</slaveName>
     <name>matmul_accel_0.avalon_slave_0</name>
     <baseAddress>0</baseAddress>
-    <span>65536</span>
+    <span>131072</span>
    </memoryBlock>
    <memoryBlock>
     <isBridge>false</isBridge>
@@ -49741,7 +49741,7 @@ parameters are a RESULT of the module parameters. -->
     <slaveName>avalon_slave_0</slaveName>
     <name>matmul_accel_0.avalon_slave_0</name>
     <baseAddress>3221225472</baseAddress>
-    <span>65536</span>
+    <span>131072</span>
    </memoryBlock>
    <memoryBlock>
     <isBridge>false</isBridge>
@@ -50596,7 +50596,7 @@ parameters are a RESULT of the module parameters. -->
     <slaveName>avalon_slave_0</slaveName>
     <name>matmul_accel_0.avalon_slave_0</name>
     <baseAddress>3221225472</baseAddress>
-    <span>65536</span>
+    <span>131072</span>
    </memoryBlock>
    <memoryBlock>
     <isBridge>false</isBridge>
@@ -78736,7 +78736,7 @@ parameters are a RESULT of the module parameters. -->
     <slaveName>avalon_slave_0</slaveName>
     <name>matmul_accel_0.avalon_slave_0</name>
     <baseAddress>0</baseAddress>
-    <span>65536</span>
+    <span>131072</span>
    </memoryBlock>
    <memoryBlock>
     <isBridge>false</isBridge>
@@ -78818,7 +78818,7 @@ parameters are a RESULT of the module parameters. -->
 the requested settings for a module instance. -->
   <parameter name="AVS_ADDR_WIDTH">
    <type>int</type>
-   <value>16</value>
+   <value>17</value>
    <derived>false</derived>
    <enabled>true</enabled>
    <visible>true</visible>
@@ -79008,7 +79008,7 @@ parameters are a RESULT of the module parameters. -->
    </parameter>
    <parameter name="addressSpan">
     <type>java.math.BigInteger</type>
-    <value>65536</value>
+    <value>131072</value>
     <derived>true</derived>
     <enabled>true</enabled>
     <visible>false</visible>
@@ -79307,7 +79307,7 @@ parameters are a RESULT of the module parameters. -->
    <port>
     <name>avs_address</name>
     <direction>Input</direction>
-    <width>16</width>
+    <width>17</width>
     <role>address</role>
    </port>
    <port>
