@@ -18,21 +18,37 @@ module matmul_gelu_readout #(
     output reg [DATA_WIDTH-1:0] result
 );
     localparam BYTES = DATA_WIDTH/8;
-    localparam ADDRESS_BITS = $clog2(BANKS)+BANK_ADDR_WIDTH;
+    localparam WORD_SHIFT = $clog2(BYTES);
+    localparam BANK_WORD_ADDR_WIDTH = BANK_ADDR_WIDTH-WORD_SHIFT;
+    localparam WORDS_PER_BANK = (1 << BANK_WORD_ADDR_WIDTH);
     reg [7:0] bias [0:255];
     reg [7:0] rom [0:255];
     reg enabled;
-    reg [ADDRESS_BITS-1:0] read_byte_address;
+    reg [15:0] row_index;
     integer i, lane;
-    wire [BANK_ADDR_WIDTH-1:0] bank_offset = read_byte_address[BANK_ADDR_WIDTH-1:0];
     // All live row segments must be wide-word aligned. One bias per word.
     wire geometry_ok = columns != 0 && (columns % BYTES) == 0;
-    wire [BANK_ADDR_WIDTH-1:0] divisor = columns[BANK_ADDR_WIDTH-1:0];
-    wire [BANK_ADDR_WIDTH-1:0] segment =
-        columns >= (1 << BANK_ADDR_WIDTH) ? 0 :
-        (divisor == 0 ? 0 : bank_offset / divisor);
-    wire [15:0] row_index = (segment * BANKS) +
-        (read_byte_address >> BANK_ADDR_WIDTH);
+    wire [BANK_WORD_ADDR_WIDTH-1:0] word_offset = read_word_address[BANK_WORD_ADDR_WIDTH-1:0];
+    wire [15:0] row_words = columns >> WORD_SHIFT;
+    // Count crossed row boundaries instead of dividing by runtime columns.
+    // Each threshold is a CONSTANT multiple of row_words; comparisons run in
+    // parallel. Full-width products avoid overflow for large column counts.
+    wire [WORDS_PER_BANK-1:1] crossed_boundary;
+    genvar boundary;
+    generate
+        for (boundary=1; boundary<WORDS_PER_BANK; boundary=boundary+1) begin : ROW_BOUNDARY
+            assign crossed_boundary[boundary] = word_offset >= boundary * row_words;
+        end
+    endgenerate
+    reg [15:0] segment_next;
+    integer segment_number;
+    always @* begin
+        segment_next = 0;
+        for (segment_number=1; segment_number<WORDS_PER_BANK; segment_number=segment_number+1)
+            if (crossed_boundary[segment_number]) segment_next = segment_number;
+    end
+    wire [15:0] row_index_next = segment_next * BANKS +
+        (read_word_address >> BANK_WORD_ADDR_WIDTH);
     wire signed [7:0] row_bias = bias[row_index[7:0]];
     reg signed [8:0] sum;
     reg [7:0] clipped;
@@ -40,11 +56,12 @@ module matmul_gelu_readout #(
     always @(posedge clock) begin
         if (!reset_n) begin
             enabled <= 0;
-            read_byte_address <= 0;
+            row_index <= 0;
             for (i=0; i<256; i=i+1) bias[i] <= 0;
         end else begin
-            // Match the existing output RAM's one-clock read latency.
-            read_byte_address <= read_word_address * BYTES;
+            // Calculate row selection BEFORE the RAM read edge, then register
+            // it alongside the RAM's one-clock response. No extra read cycle.
+            row_index <= row_index_next;
             if (config_write) begin
                 for (i=0; i<BYTES; i=i+1) begin
                     if (config_byteenable[i]) begin

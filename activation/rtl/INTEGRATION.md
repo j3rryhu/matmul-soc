@@ -1,8 +1,10 @@
 # Matmul readout integration
 
-Resource optimization: row mapping and bias read are shared by all bytes of a
-wide word; the divider is bank-address-width unsigned, not one integer divider
-per lane. Addition is explicitly signed 9-bit. Enabled processing requires M
+Row mapping and bias read are shared by all bytes of a wide word. Row mapping
+uses parallel comparisons against constant multiples of the row length in
+words, replacing the runtime divider. The selected row index is registered
+alongside the output RAM read, so mapping and bias/GELU occupy separate clock
+paths without adding a read cycle. Addition is explicitly signed 9-bit. Enabled processing requires M
 to be a multiple of DATA_WIDTH/8 (16 for the current 128-bit interface), so a
 word cannot straddle output-row segments. Unsupported geometry bypasses the
 activation; software must enforce the restriction. The existing M=32 test meets
@@ -17,9 +19,9 @@ Applying nonlinear GELU on intermediate writes would corrupt later accumulation.
 The host must wait for matmul done, then read the final output. The same output
 addresses now return bias/GELU when enabled, raw matmul bytes when disabled.
 No additional read cycle is added. Processing is combinational across every
-byte of the wide RAM read; registered address tracking matches RAM latency.
-Quartus timing/resource checks are still required (parallel ROM lookups and
-runtime division for row mapping may be expensive). This is not a streaming
+byte of the wide RAM read; registered row tracking matches RAM latency.
+Full-system Quartus timing/resource checks are still required (bias selection,
+parallel ROM lookups, and Avalon return routing remain combinational). This is not a streaming
 connection to the next Linear layer and does not write activated values into RAM.
 
 ## New byte-addressed host writes
@@ -76,5 +78,9 @@ before programming. Existing generated Qsys HDL was not regenerated here.
 Run `vsim -c -do activation/rtl/run_modelsim.do` from the project root.
 Tests cover standalone GELU, all 65,536 int8 bias pairs, and 1,024 readout bytes
 over both 16-row segments with distinct biases, byte-enabled writes, bypass and
-reset. The readout test models synchronous RAM; it is not a full Avalon/HPS or
+reset. An additional 539,649 wide-word checks cover every aligned 16-bit column
+count and all 128 output word addresses in nonsequential order, plus invalid
+geometry bypass. Expected row selection uses an independent division reference.
+Large column counts test mapper arithmetic only; they do not establish that
+the complete matmul supports those dimensions. The readout test models synchronous RAM; it is not a full Avalon/HPS or
 full matmul simulation. Board and full-system verification remain necessary.
