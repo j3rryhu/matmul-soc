@@ -18,11 +18,11 @@
 #define N 32
 #define M 32
 #define STATUS 0x50u
-#define ENABLE 0x8100u
-#define BIAS 0x8000u
+#define ENABLE 0x0900u
+#define BIAS 0x0800u
 #define WBUF 0x1000u
 #define IBUF 0x5000u
-#define OBUF 0x7000u
+#define OBUF 0x9000u
 static volatile uint8_t *accel;
 static int8_t lut[256];
 
@@ -59,7 +59,7 @@ static uint64_t now_ns(void)
 static void read_output(int8_t *values)
 {
     for (int k = 0; k < K; k++) {
-        uint32_t base = OBUF + (k % 16)*128u + (k / 16)*M;
+        uint32_t base = OBUF + k*M;
         for (int m = 0; m < M; m += 4) {
             uint32_t word = rd(base + m);
             for (int j = 0; j < 4; j++) values[k*M+m+j] = (int8_t)(word >> (8*j));
@@ -120,7 +120,7 @@ int main(int argc, char **argv)
     for (int i = 0; i < N*M; i++) inputs[i] = (int8_t)((i % 256)-128);
     int fd = open("/dev/mem", O_RDWR | O_SYNC);
     if (fd < 0) { perror("/dev/mem (run as root)"); return 1; }
-    void *mapping = mmap(NULL, 0x10000, PROT_READ|PROT_WRITE, MAP_SHARED, fd, (off_t)0xC0000000UL);
+    void *mapping = mmap(NULL, 0x20000, PROT_READ|PROT_WRITE, MAP_SHARED, fd, (off_t)0xC0000000UL);
     if (mapping == MAP_FAILED) { perror("mmap"); close(fd); return 1; }
     accel = (volatile uint8_t *)mapping;
     int failed = 1;
@@ -129,14 +129,13 @@ int main(int argc, char **argv)
     if (status & 1u) { puts("Hardware busy: reset FPGA and retry; no configuration written."); goto cleanup; }
     wr(ENABLE, 0);
     wr(0x10, K); wr(0x20, N); wr(0x30, M); wr(0x40, M); wr(0x60, 32768);
+    wr(0x70, 0); wr(0x80, M);
     if (rd(0x10) != K || rd(0x20) != N || rd(0x40) != M || rd(0x60) != 32768) {
         puts("FAIL: dimension/scale register readback; check programmed FPGA version."); goto cleanup;
     }
-    puts("Writing identity weights and banked inputs (32-bit PIO)...");
+    puts("Writing row-major identity weights and inputs (32-bit PIO)...");
     for (int i = 0; i < K*N; i += 4) wr(WBUF+i, pack(&weights[i]));
-    for (int bank = 0; bank < 16; bank++) for (int band = 0; band < 2; band++)
-        for (int m = 0; m < M; m += 4)
-            wr(IBUF+bank*256u+band*M+m, pack(&inputs[(band*16+bank)*M+m]));
+    for (int i = 0; i < N*M; i += 4) wr(IBUF+i, pack(&inputs[i]));
     (void)rd(STATUS); /* clear stale done */
     wr(0, 1);
     uint64_t start = now_ns();
@@ -164,6 +163,6 @@ int main(int argc, char **argv)
 cleanup:
     /* Only write disable when idle: a failed, still-busy operation needs reset. */
     if (!(rd(STATUS) & 1u)) wr(ENABLE, 0);
-    munmap(mapping, 0x10000); close(fd);
+    munmap(mapping, 0x20000); close(fd);
     return failed;
 }

@@ -30,8 +30,8 @@ All offsets are relative to accelerator base `0xC0000000`, without --reg16 scali
 
 | Offset | Write behavior |
 |---|---|
-| 0x8000..0x80ff | 256 signed int8 biases, indexed by output matrix row |
-| 0x8100 | Bit 0 enables bias + GELU; zero bypasses both |
+| 0x0800..0x08ff | 256 signed int8 biases, indexed by output matrix row |
+| 0x0900 | Bit 0 enables bias + GELU; zero bypasses both |
 
 Reset disables processing and clears biases. Configuration writes are ignored
 while matmul busy. These registers are write-only; reads are not implemented.
@@ -43,15 +43,15 @@ Use 32-bit aligned host writes (Avalon byteenable selects the correct wide lane)
 
 ```c
 /* accel is your existing mmap pointer; bias contains K same-scale int8 values. */
-*(volatile uint32_t *)(accel + 0x8100) = 0; /* disable, while idle */
+*(volatile uint32_t *)(accel + 0x0900) = 0; /* disable, while idle */
 for (int row = 0; row < K; row += 4) {
     uint32_t packed = 0;
     for (int j = 0; j < 4 && row+j < K; j++)
         packed |= (uint32_t)(uint8_t)bias[row+j] << (8*j);
-    *(volatile uint32_t *)(accel + 0x8000 + row) = packed;
+    *(volatile uint32_t *)(accel + 0x0800 + row) = packed;
 }
 __sync_synchronize();
-*(volatile uint32_t *)(accel + 0x8100) = 1;
+*(volatile uint32_t *)(accel + 0x0900) = 1;
 __sync_synchronize();
 /* Configure/start matmul as usual, wait for done, then read OBUF. */
 ```
@@ -84,3 +84,28 @@ geometry bypass. Expected row selection uses an independent division reference.
 Large column counts test mapper arithmetic only; they do not establish that
 the complete matmul supports those dimensions. The readout test models synchronous RAM; it is not a full Avalon/HPS or
 full matmul simulation. Board and full-system verification remain necessary.
+
+## Merged main memory map
+
+The integrated bias window moved to 0x0800..0x08ff and enable to 0x0900
+because main expanded IBUF to 0x5000..0x8fff. The top level translates these
+addresses to the standalone readout module's unchanged 0x8000/0x8100 interface.
+Do not use the old integrated offsets: they now write input data.
+
+OBUF now starts at 0x9000 and exposes a contiguous row-major canvas. GELU
+uses the remapped bank address aligned with the synchronous RAM response,
+and uses TILED_MAT_DIM (or INPUT_COLS when zero) for row-bias selection.
+Enabled GELU requires that canvas width be a multiple of 16, and supports
+biases for canvas rows 0..255. Host software must use main's new register map
+and row-major input/weight layout. matmul_gelu_test.c follows this map.
+The merged design requires fresh Platform Designer generation and Quartus
+compilation; previous timing results do not validate this larger design.
+
+Run `vsim -c -do activation/rtl/run_merge_modelsim.do` for the merged-path
+regression. On 2026-11-14 it passed with zero errors or warnings: 3,072 bytes
+across 192 Avalon burst beats through real output RAM and address remapping,
+checking raw output, per-row bias/GELU, bypass restoration, canvas width
+selection, and isolation from writes to the former enable address in IBUF.
+It seeds RAM through its write ports; it does not run the matmul datapath.
+The imported PE enable register was placed inside a generate-if to avoid an
+invalid ROW[-1] reference when ModelSim elaborates the first PE row.
