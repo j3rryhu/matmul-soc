@@ -1,0 +1,8 @@
+runs/
+__pycache__/
+rtl/work/
+rtl/transcript
+rtl/*.wlf
+quartus/build_current/
+quartus/build_pipelined/
+quartus/build_timing2/

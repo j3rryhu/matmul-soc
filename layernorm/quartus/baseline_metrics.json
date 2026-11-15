@@ -1,0 +1,25 @@
+{
+  "tool": "Quartus Prime Lite 18.1.0 Build 625",
+  "device": "5CSEMA5F31C6",
+  "seed": 1,
+  "target_period_ns": 11.111,
+  "synthesis_passed": true,
+  "fit_passed": true,
+  "timing_passed": false,
+  "alms": 540,
+  "registers": 488,
+  "m10k_blocks": 4,
+  "memory_bits": 22016,
+  "dsp_blocks": 9,
+  "worst_setup_slack_ns": -0.686,
+  "worst_hold_slack_ns": 0.121,
+  "worst_pulse_width_slack_ns": 4.338,
+  "lowest_slow_corner_fmax_mhz": 84.77,
+  "board_tested": false,
+  "sha256": {
+    "rtl/layernorm_row.sv": "f212b8d213a4f942dea36a827ca1678828507b1a8680a820bdb0b1b71ae0316d",
+    "example/epsilon.hex": "055318bd9c3b355d7342d73e49b66e5d1edf30dce460bc5aa407846fee3125a0",
+    "quartus/layernorm_benchmark.sv": "394401c44282f7b235fa0cd04e89132821bfdb19544b38c2c280d135f9638f69",
+    "quartus/layernorm.sdc": "92497b233d7ebc61761a770687d0096072be3fa64984aea367fc844c72ab7cb6"
+  }
+}

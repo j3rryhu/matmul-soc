@@ -1,0 +1,2 @@
+# Preserve byte-exact RTL/vector/ROM hashes across Windows branch checkouts.
+* -text whitespace=cr-at-eol

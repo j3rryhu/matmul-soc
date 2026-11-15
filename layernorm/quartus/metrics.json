@@ -1,0 +1,36 @@
+{
+  "tool": "Quartus Prime Lite 18.1.0 Build 625",
+  "device": "5CSEMA5F31C6",
+  "seed": 1,
+  "target_period_ns": 11.111,
+  "build_directory": "build_timing2",
+  "synthesis_passed": true,
+  "fit_passed": true,
+  "timing_passed": true,
+  "alms": 510,
+  "registers": 639,
+  "m10k_blocks": 4,
+  "memory_bits": 22016,
+  "dsp_blocks": 8,
+  "worst_setup_slack_ns": 0.321,
+  "worst_hold_slack_ns": 0.116,
+  "worst_pulse_width_slack_ns": 4.337,
+  "lowest_slow_corner_fmax_mhz": 92.68,
+  "all_unconstrained_counts_zero": true,
+  "constraints_unchanged_from_baseline": true,
+  "board_tested": false,
+  "regression": {
+    "rows": 744,
+    "outputs": 200296,
+    "cycles": 11341664,
+    "first_valid_latency_cycles": 78,
+    "output_interval_cycles": 52
+  },
+  "sha256": {
+    "rtl/layernorm_row.sv": "8e1148c1031f840ead85ac5b04acaee96c0a0b7bfdee2abae0a98c64ccabac65",
+    "example/epsilon.hex": "055318bd9c3b355d7342d73e49b66e5d1edf30dce460bc5aa407846fee3125a0",
+    "quartus/layernorm_benchmark.sv": "394401c44282f7b235fa0cd04e89132821bfdb19544b38c2c280d135f9638f69",
+    "quartus/layernorm.sdc": "92497b233d7ebc61761a770687d0096072be3fa64984aea367fc844c72ab7cb6"
+  },
+  "baseline_metrics": "baseline_metrics.json"
+}

@@ -1,0 +1,44 @@
+{
+  "simulator": "ModelSim Intel FPGA Edition 10.5b",
+  "date": "2026-11-14",
+  "timezone": "America/Toronto",
+  "main_suite": {
+    "passed": true,
+    "rows": 744,
+    "outputs": 200296,
+    "cycles": 11341664,
+    "errors": 0,
+    "warnings": 0,
+    "reset_coverage": [
+      "receive",
+      "sqrt",
+      "divide",
+      "scale_multiply",
+      "output_magnitude",
+      "stalled_output"
+    ]
+  },
+  "directed_suite": {
+    "passed": true,
+    "tie_outputs": 4,
+    "first_valid_latency_cycles": 78,
+    "output_interval_cycles": 52,
+    "errors": 0,
+    "warnings": 0
+  },
+  "software_tests_passed": 9,
+  "sha256": {
+    "rtl/layernorm_row.sv": "8e1148c1031f840ead85ac5b04acaee96c0a0b7bfdee2abae0a98c64ccabac65",
+    "rtl/tb_layernorm_row.sv": "45228821f5ccf47d77567ed7fd0132418f58df0925303d27e76f4d24af36ff25",
+    "rtl/tb_layernorm_directed.sv": "b7eb59d2208d77de2c1a5bd71761b2cbba98abf6790af7bf6ac73c92dbc7b665",
+    "example/epsilon.hex": "055318bd9c3b355d7342d73e49b66e5d1edf30dce460bc5aa407846fee3125a0",
+    "example/rows.txt": "84241886ce5adb15e592ada4c33fa6021025796b0f62f1c159f9159a641cf9d6",
+    "example/int8_config.json": "82363fb8e50db1ca04763d4617969467bf69273b23e9b88908f9471860b3ce74"
+  },
+  "limits": [
+    "Standalone timing results recorded separately in quartus/metrics.json",
+    "No FPGA board test or integration",
+    "Serialized integer square-root/division baseline"
+  ],
+  "optimization": "Coefficient read registers; signed 21-bit normalized value and 29-bit gamma product; registered split constant products, recombination, affine add, output magnitude"
+}
