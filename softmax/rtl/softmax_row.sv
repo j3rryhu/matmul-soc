@@ -1,4 +1,5 @@
-// Integer baseline: signed score /256, exp ROM /65535, probability /65535.
+// INT8 boundary: calibrated signed scores; signed output codes 0..127, /127.
+// Internal exponential ROM remains unsigned 16-bit; division is ties-to-even.
 // Synchronous active-high reset. One row buffered at a time, length 1..196.
 module softmax_row #(
     parameter LUT_FILE = "softmax/example/exp_lut.hex"
@@ -6,36 +7,40 @@ module softmax_row #(
     input wire clk, reset,
     input wire in_valid,
     output wire in_ready,
-    input wire signed [15:0] in_score,
+    input wire signed [7:0] in_score,
     input wire [7:0] row_length, // sampled on the first accepted input only
     output reg out_valid,
     input wire out_ready,
-    output reg [15:0] out_probability,
+    output reg signed [7:0] out_probability,
     output reg out_last
 );
     localparam RECEIVE=0, SCORE_READ=1, EXP_READ=2, EXP_STORE=3,
-               NORMALIZE=4, DIVIDE=5, SEND=6;
-    reg [2:0] state;
-    reg signed [15:0] scores [0:195];
+               NORMALIZE=4, DIVIDE=5, SEND=6, WEIGHT_READ=7, ROUND=8;
+    reg [3:0] state;
+    reg signed [7:0] scores [0:195];
     reg [15:0] exponentials [0:195];
-    reg [15:0] rom [0:4095]; // 3073 useful entries, zero-padded for block ROM
+    reg [15:0] rom [0:255]; // Every possible signed-INT8 score difference.
     reg [7:0] count, length, index;
-    reg signed [15:0] maximum;
-    reg [15:0] exp_value;
-    reg signed [15:0] score_value;
+    reg signed [7:0] maximum;
+    reg [15:0] exp_value, weight_value;
+    reg signed [7:0] score_value;
     reg [23:0] total;
-    wire signed [16:0] difference = $signed({maximum[15], maximum}) -
-                                    $signed({score_value[15], score_value});
-    wire [11:0] rom_address = difference <= 17'sd3072 ? difference[11:0] : 12'd3073;
-    wire [31:0] product = {16'b0, exponentials[index]} * 32'd65535;
-    wire [32:0] numerator = {1'b0, product} + {9'b0, (total >> 1)};
-    // Restoring unsigned division: one numerator bit per cycle, 33 cycles.
-    reg [32:0] dividend;
+    wire signed [8:0] difference = $signed({maximum[7], maximum}) -
+                                   $signed({score_value[7], score_value});
+    wire [7:0] rom_address = difference[7:0];
+    // e*127 = (e<<7)-e, unsigned 23-bit exact product.
+    wire [22:0] numerator = ({7'b0,weight_value} << 7)-{7'b0,weight_value};
+    // Restoring unsigned division, one numerator bit per cycle, 23 cycles.
+    reg [22:0] dividend;
     reg [24:0] remainder;
     reg [5:0] divide_step;
-    wire [24:0] trial = {remainder[23:0], dividend[32]};
+    wire [24:0] trial = {remainder[23:0], dividend[22]};
     wire subtract = trial >= {1'b0, total};
-    wire [32:0] next_dividend = {dividend[31:0], subtract};
+    wire [22:0] next_dividend = {dividend[21:0], subtract};
+    wire [25:0] twice_remainder = {remainder,1'b0};
+    wire round_up = (twice_remainder > {2'b0,total}) ||
+                    ((twice_remainder == {2'b0,total}) && dividend[0]);
+    wire [23:0] rounded_code = {1'b0,dividend}+{{23{1'b0}},round_up};
     assign in_ready = !reset && state == RECEIVE &&
                       (count != 0 || (row_length >= 1 && row_length <= 196));
     initial $readmemh(LUT_FILE, rom);
@@ -45,6 +50,7 @@ module softmax_row #(
     always @(posedge clk) begin
         score_value <= scores[index];
         exp_value <= rom[rom_address];
+        weight_value <= exponentials[index];
     end
 
     always @(posedge clk) begin
@@ -53,7 +59,7 @@ module softmax_row #(
             count <= 0;
             length <= 0;
             index <= 0;
-            maximum <= 16'sh8000;
+            maximum <= 8'sh80;
             total <= 0;
             dividend <= 0;
             remainder <= 0;
@@ -84,12 +90,13 @@ module softmax_row #(
                     total <= total + {8'b0, exp_value};
                     if (index == length-1) begin
                         index <= 0;
-                        state <= NORMALIZE;
+                        state <= WEIGHT_READ;
                     end else begin
                         index <= index+1'b1;
                         state <= SCORE_READ;
                     end
                 end
+                WEIGHT_READ: state <= NORMALIZE;
                 NORMALIZE: begin
                     dividend <= numerator;
                     remainder <= 0;
@@ -100,12 +107,14 @@ module softmax_row #(
                     dividend <= next_dividend;
                     if (subtract) remainder <= trial - {1'b0, total};
                     else remainder <= trial;
-                    if (divide_step == 32) begin
-                        out_probability <= next_dividend[15:0];
-                        out_last <= index == length-1;
-                        out_valid <= 1;
-                        state <= SEND;
-                    end else divide_step <= divide_step+1'b1;
+                    if (divide_step == 22) state <= ROUND;
+                    else divide_step <= divide_step+1'b1;
+                end
+                ROUND: begin
+                    out_probability <= $signed({1'b0,rounded_code[6:0]});
+                    out_last <= index == length-1;
+                    out_valid <= 1;
+                    state <= SEND;
                 end
                 SEND: if (out_valid && out_ready) begin
                     out_valid <= 0;
@@ -113,7 +122,7 @@ module softmax_row #(
                     if (index == length-1) state <= RECEIVE;
                     else begin
                         index <= index+1'b1;
-                        state <= NORMALIZE;
+                        state <= WEIGHT_READ;
                     end
                 end
                 default: state <= RECEIVE;

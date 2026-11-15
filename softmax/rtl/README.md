@@ -1,79 +1,78 @@
-# Row softmax RTL baseline
+# Standalone signed INT8 softmax RTL
 
-`softmax_row.sv` implements the selected fixed-point contract in the parent
-README. It buffers one row of 1..196 signed 16-bit score codes, computes the
-row maximum, reads a 3073 x 16-bit exponential ROM, sums exponential codes
-in 24 bits, and normalizes to unsigned 16-bit probability codes.
+`softmax_row.sv` accepts signed INT8 scores and emits signed INT8 probability
+codes 0..127, zero point zero. Decode an output as `code/127`. Input real scale
+is 0.11335523860661063 for the supplied calibrated ROM. This replaces the former
+16-bit input/16-bit output interface, so any external wrapper must update widths
+and scale interpretation. The repository's benchmark and testbenches are updated.
+The block is standalone; no matmul/GELU/LayerNorm/SoC connection is added.
 
-## Interface
+## Interface and algorithm
 
-- Rising-edge clock, synchronous active-high `reset`. Reset aborts any active
-  row; the producer must resend that row from its first element afterwards.
-- Input transfer: `in_valid && in_ready`. The source holds data stable until
-  accepted. `in_score` has scale `1/256` (real score = code/256).
-- `row_length` is sampled on the first accepted element only. Legal lengths
-  are 1..196. An invalid first length keeps `in_ready` low. Later values of
-  `row_length` do not affect the active row.
-- Output transfer: `out_valid && out_ready`. `out_probability` represents
-  real probability `code/65535`. `out_last` marks the final element.
-- Output valid, probability and last remain stable during backpressure.
-- The next row can start after the final output transfer. Rows do not overlap.
+- `reset` is synchronous active-high and discards a partial row/pending output.
+- A channel is accepted at a rising edge with `in_valid && in_ready`.
+- `row_length[7:0]` is sampled on the first accepted score; legal values 1..196.
+  Later changes do not change that row. An invalid first length blocks input.
+- Hold input data/valid until accepted. Exactly the latched length completes input.
+- One row is buffered. Input ready is low during computation/output.
+- Output transfers on `out_valid && out_ready`. Data, valid and `out_last` remain
+  stable while stalled. `out_last` marks the final score's output.
+- The next row starts after the previous final output is accepted. Memory is not
+  reset; control ensures only the current complete row is used.
 
-The input must already include the complete QK contraction, attention scale
-and attention bias, quantized to this score format. This module does not
-perform those operations or connect to the existing int8 matmul buffer.
+The core buffers scores, finds their maximum, and replays them through a 256x16
+exponential ROM, accumulating a 24-bit sum. Differences widen to signed 9 bits,
+covering 0..255. The internal exponential memory also has 16-bit entries; external
+input/output storage remains INT8. Memories use synchronous reads.
 
-## Architecture and limits
+Each numerator is `e*127`, implemented as shift/subtract, fitting unsigned 23 bits.
+A shared restoring divider processes one bit per clock for **23 clocks** using
+shifts, comparisons and subtraction, with a 25-bit remainder. It is not a
+reciprocal lookup table or a combinational `/`. A separate state compares twice
+the remainder with the sum and applies ties-to-even rounding. Output is bounded
+by 127; its sign bit is zero. The exponential LUT approximates exp only.
 
-The state machine receives N elements, performs three cycles per score
-read/exponential lookup/store, then performs integer division one bit per
-cycle (33 cycles). Without output stalls, outputs transfer every 35 cycles.
-The first output is available 3N+34 cycles after the final input transfer,
-and can transfer on the following edge. Input stalls and output backpressure
-extend elapsed time. A continuously supplied row takes 39N clock periods
-from its first input to the following row's first input, with no stalls.
+For each output there is a weight-read state, normalization-load state, 23 divide
+states, a rounding state and an output-transfer state. With no stalls, output
+handshakes are **27 clocks apart**. First valid asserts `3*N+26` clocks after
+the final input handshake. The directed test measures these timings. This is
+a serialized correctness baseline, not a one-result-per-clock pipeline.
 
-Differences are widened to 17 bits before ROM indexing. Differences greater
-than 3072 produce zero. The maximum score always produces exponential code
-65535, so a completed row has a nonzero denominator. The 32-bit product and
-33-bit rounded numerator preserve integer Python normalization exactly.
+## Simulation and vectors
 
-The original combinational `/` operator has been replaced by an exact
-33-cycle restoring unsigned divider. Synchronous score and ROM reads permit
-block-memory inference. This trades output throughput for a shorter critical
-path and less logic; no probability approximation was introduced.
-The LUT path defaults to `softmax/example/exp_lut.hex`; tools must run from
-the repository root or override `LUT_FILE`.
-
-## Reproduce verification
-
-The generated ROM and vectors are included in `softmax/example/`, so ModelSim
-simulation does not require PyTorch, a checkpoint or the capture artifacts:
+From repository root:
 
 ```powershell
 vsim -c -do softmax/rtl/run_modelsim.do
 ```
 
-To regenerate vectors after the Python capture and fixed-point evaluation:
+The script uses the separate `softmax/rtl/work` library without changing library
+mappings. It runs directed tests and the full golden-vector test; compile/runtime
+failure or a missing pass flag produces nonzero exit status. It does not program
+hardware. Supplied ROM/vectors allow simulation without Python/model assets.
+
+`example/manifest.json` specifies calibrated scales, widths, hashes and counts.
+The fixture header contains row/output counts; each row contains a length followed
+by signed decimal `score_code expected_probability_code` pairs. Regenerate with:
 
 ```powershell
 & '../.venv/Scripts/python.exe' softmax/generate_rtl_vectors.py
 ```
 
-On 2026-11-02, ModelSim Intel FPGA Edition 10.5b passed 147 rows / 8666
-elements for both the original and revised implementations, with zero
-compiler/simulator errors or warnings.
-The Python-generated expected codes matched RTL bit-for-bit.
+ModelSim passed **578 rows / 25,999 output codes** bit-for-bit in 897,599 main
+testbench clocks. Coverage includes every difference 0..255, every row length
+1..196, signed extrema, constant/one-hot-like/random rows, 100 real score rows,
+input gaps, output stalls/stability, `out_last`, invalid lengths and reset
+recovery. Directed tests additionally check equal rows of lengths 1/2/49/196,
+the 63.5 -> 64 ties-to-even case and latency/interval. An additional 26-key
+golden row uses exact exponential weights with total `254*318`, forcing 24
+probabilities to exactly 0.5 output codes; each rounds to even zero, which
+distinguishes the new rule from the former half-up implementation.
+Compile/simulation reported
+zero errors/warnings. The 32-bit legacy simulator needs execution outside the
+sandbox on this Windows installation due to DLL relocation at sandbox startup.
 
-Coverage includes 100 real attention rows (10 per image), 47 synthetic rows,
-lengths 1/2/49/196, all-equal scores, signed extrema, dominant maxima, LUT
-boundary differences, deterministic random rows, input gaps, output stalls,
-output stability and last markers, invalid lengths, reset during partial
-reception, active division, and a stalled output. Rows run consecutively without
-reset between test vectors. This is functional simulation, not FPGA validation.
-
-The ROM file has 4096 physical words: 3073 useful LUT entries followed by
-zero padding. Valid differences beyond the useful range select address 3073
-and output zero. Python's numerical LUT retains 3073 entries.
-
-See `../quartus/README.md` for the standalone Cyclone V resource/timing build.
+Independent rounding can substantially change probability sums, especially for
+196-element uniform rows; see the top-level README and RESULTS. Passing RTL
+equivalence does not establish acceptable floating-model error or accuracy.
+Quartus resources/timing and physical board testing are separate validations.

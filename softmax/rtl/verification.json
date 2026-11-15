@@ -1,0 +1,27 @@
+{
+  "simulator": "ModelSim Intel FPGA Edition 10.5b",
+  "rows": 578,
+  "outputs": 25999,
+  "cycles": 897599,
+  "passed": true,
+  "compile_errors": 0,
+  "compile_warnings": 0,
+  "runtime_errors": 0,
+  "runtime_warnings": 0,
+  "directed_rows": [
+    1,
+    2,
+    49,
+    196
+  ],
+  "first_valid_latency": "3*N+26 clocks after final input handshake",
+  "output_interval_cycles": 27,
+  "sha256": {
+    "rtl/softmax_row.sv": "37f08ab7d383db6b686f3a41ca6b8fc7e6250b0b1d0e6cfc9ebe82c09e29ecfb",
+    "rtl/tb_softmax_row.sv": "0983345414f923e45403a0bf1851e0b05ff671ea7df54a4f1df9eb1a508afdd1",
+    "rtl/tb_softmax_directed.sv": "c4d21a844794c8b9a81e5a7ededed7e45c1b12a035499a21a4c2263163f97076",
+    "example/exp_lut.hex": "fed1fbc2f3c0c34c91c9c0cb163181bfedb450766514511bc1f79ac7a16dfd95",
+    "example/rows.txt": "2296fccb8241fef42a71e87859b23eccee2d69f8de766252d42fb6f963aa674b"
+  },
+  "exact_even_floor_tie": true
+}

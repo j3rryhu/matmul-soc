@@ -26,8 +26,8 @@ def evaluate(records, folder, config, export=None):
                          "max_row_sum_error": float(np.abs(p.sum(-1)-1).max())})
             if export is not None:
                 q, _ = quantize_scores(data["scores"], config)
-                np.savez_compressed(export / record["artifact"], score_codes=q.astype(np.int16),
-                                    probability_codes=codes.astype(np.uint16))
+                np.savez_compressed(export / record["artifact"], score_codes=q.astype(np.int8),
+                                    probability_codes=codes.astype(np.int8))
     # All captured tensors in this experiment have the same size.
     return {"mean_image_context_rmse": float(np.mean([r["context"]["rmse"] for r in rows])),
             "mean_image_probability_rmse": float(np.mean([r["probability"]["rmse"] for r in rows])),
@@ -102,7 +102,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     root = Path(__file__).resolve().parent
     parser.add_argument("--reference", type=Path, default=root / "runs/reference_21m")
-    parser.add_argument("--out", type=Path, default=root / "runs/fixed_21m")
+    parser.add_argument("--out", type=Path, default=root / "runs/int8_21m")
     parser.add_argument("--model-root", type=Path, default=root.parents[1] / "TinyVit-on-FPGA")
     args = parser.parse_args()
     capture = json.loads((args.reference / "report.json").read_text())
@@ -110,24 +110,32 @@ def main():
     validation = [r for r in capture["images"] if r["split"]=="validation"]
     args.out.mkdir(parents=True, exist_ok=True)
     grid = []
-    for fractional in (4,6,8):
-        for cutoff in (8,12,16):
-            config = Config(fractional_bits=fractional,cutoff=cutoff)
-            metrics = evaluate(calibration,args.reference,config)
-            grid.append({"config":asdict(config), "calibration":metrics})
-            print("Calibration", fractional, cutoff, metrics["mean_image_context_rmse"],flush=True)
+    values = []
+    for record in calibration:
+        with np.load(args.reference/record['artifact']) as data:
+            values.append(data['scores'].reshape(-1))
+    scores = np.concatenate(values)
+    scales = sorted(set([2.**p for p in range(-5,0)] +
+                        [float(np.percentile(np.abs(scores),p))/127 for p in (95,99,99.5,99.9,100)]))
+    for scale in scales:
+        config = Config(score_scale=scale)
+        metrics = evaluate(calibration,args.reference,config)
+        grid.append({"config":asdict(config), "calibration":metrics})
+        print("Calibration score scale", scale, metrics["mean_image_context_rmse"],flush=True)
     # The selection uses calibration only; held-out images are loaded afterwards.
     selected = min(grid,key=lambda x:(x["calibration"]["mean_image_context_rmse"],
-                                     x["config"]["cutoff"]*(1<<x["config"]["fractional_bits"])))
+                                     x["config"]["score_scale"]))
     config = Config(**selected["config"])
-    report = {"selection_policy":"Minimum mean per-image P@V RMSE on calibration only; ROM size breaks exact ties",
+    report = {"selection_policy":"Minimum mean per-image P@V RMSE on calibration only; smaller input scale breaks exact ties",
               "config":config.metadata(), "calibration_grid":grid,
               "calibration":evaluate(calibration,args.reference,config,args.out),
               "validation":evaluate(validation,args.reference,config,args.out),
               "limitations":["One block, 10 images; agreement is not ground-truth accuracy",
                              "Integer division is a baseline, not a reciprocal implementation",
                              "Float scores are quantized at this boundary; integer QK matmul is not simulated",
-                             "No hardware validation or acceptance thresholds"]}
+                             "Signed INT8 probabilities have only 128 nonnegative levels; row mass error is measured, not corrected",
+                             "Validation excluded from scale selection but local images were used in earlier experiments",
+                             "RTL and device validation are separate from these software results; no application acceptance threshold"]}
     lut = make_lut(config)
     (args.out / "exp_lut.hex").write_text("".join(f"{int(x):04x}\n" for x in lut))
     (args.out / "config.json").write_text(json.dumps(config.metadata(),indent=2)+"\n")

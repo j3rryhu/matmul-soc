@@ -1,70 +1,95 @@
-# TinyViT 21M fixed-point softmax baseline
+# Signed INT8 softmax migration
 
-Run date: 2026-11-02. Target: `layers.1.blocks.0.attn`.
-Seven calibration images and three held-out images from the local example set.
+Work is on the `softmax` branch. The current boundary is signed INT8 input and
+output, zero points zero, matching matmul/GELU/LayerNorm storage conventions.
+Internal 16-bit exponentials, 24-bit sums and 23-bit division numerators retain
+precision. No accelerator integration or SoC project edits were made.
 
-Selection: minimum mean per-image P @ V RMSE over calibration only, with
-ROM size breaking exact ties. Nine configurations were tested: score
-fractional bits 4/6/8 and exponential cutoff 8/12/16. Validation did not
-participate in selection.
+## Calibrated contract and model results
 
-Selected contract:
+- Input scale: 0.11335523860661063 (real value = signed code times scale).
+- Output scale: 1/127, using signed codes 0..127; sign bit always zero.
+- 256 x 16-bit exponential ROM covers all INT8 score differences.
+- Input/ROM/normalization rounding: nearest ties to even.
+- Exact 23-cycle restoring division; no reciprocal approximation.
 
-- Signed 16-bit scores, real scale 1/256; nearest ties-to-even quantization.
-- 3073-entry, 16-bit exponential ROM for differences 0 through 12, step 1/256.
-- ROM values are round(exp(-difference) * 65535); larger differences output zero.
-- Signed score subtraction widened to 17 bits; sum width 24 bits for 196 keys.
-- Unsigned 16-bit probability codes, scale 1/65535.
-- Exact integer normalization with nearest ties-up rounding; rounded numerator
-  uses a conservative 33-bit temporary. Independent rounding permits row sums
-  to differ slightly from one.
+Ten candidate input scales were evaluated on seven calibration images, minimizing
+mean per-image P@V RMSE. The three remaining images did not influence selection.
+The output scale is fixed to cover [0,1] with nonnegative signed INT8. These same
+local images have been examined previously; this is not a new independent dataset.
+The target is TinyViT-21M `layers.1.blocks.0.attn`, score shape `[16,6,49,49]`.
 
 | Metric | Calibration (7 images) | Validation (3 images) |
-| --- | ---: | ---: |
-| Mean per-image probability RMSE | 3.79884e-5 | 4.03157e-5 |
-| Maximum probability error | 8.17924e-4 | 7.96226e-4 |
-| Mean per-image P @ V RMSE | 9.91922e-5 | 1.10274e-4 |
-| Maximum P @ V error | 1.28132e-3 | 1.48496e-3 |
-| Maximum probability row-sum error | 1.37331e-4 | 1.52590e-4 |
-| Input saturation count | 0 | 0 |
-| Top-1 agreement with float model | 7/7 | 3/3 |
-| Top-5 set agreement with float model | 7/7 | 3/3 |
-| Maximum final logit error | 2.27690e-4 | 1.47343e-4 |
+| --- | --- | --- |
+| Mean per-image probability RMSE | 0.00261026 | 0.00286682 |
+| Maximum probability error | 0.380650 | 0.293380 |
+| Mean per-image P@V RMSE | 0.0110348 | 0.0127286 |
+| Maximum P@V error | 0.396605 | 0.441886 |
+| Maximum probability row-sum error | 0.0944882 | 0.0708661 |
+| Input clipping count | 1,500 | 2,554 |
+| Top-1 agreement | 7/7 | 3/3 |
+| Top-5 set agreement | 7/7 | 3/3 |
 
-All six unit tests passed. Model baseline logits matched the captured
-reference exactly. Removing the replacement hooks restored original logits
-exactly for every image. Only one attention block's probabilities were replaced;
-all other model arithmetic remained floating point. The model test dequantizes
-probabilities to float32 before P @ V; standalone context metrics use float64.
+Across all 10 images, relative probability RMSE is 6.63406% and relative P@V RMSE
+is 2.53168%, computed as `100*sqrt(sum(error^2)/sum(reference^2))`. These are
+numerical errors, not classification error. Worst final-logit absolute change
+is 0.0218391. Baseline logits matched captured reference exactly; removing the
+replacement restored baseline logits exactly for each image.
 
-This is not ground-truth classification accuracy, full-model quantization,
-or hardware validation. No acceptance threshold was supplied. The 10 example
-images are insufficient for a deployment accuracy claim. Integer division is
-the correctness baseline; reciprocal approximation remains future work.
+The former 16-bit boundary had validation probability RMSE 4.03157e-5 and P@V
+RMSE 1.10274e-4, with maximum row-sum error 1.52590e-4. INT8 format compatibility
+has a measurable precision cost. The selected scale minimizes average calibration
+context error; it permits some input clipping and rare larger local errors.
+There is no application error budget or ground-truth accuracy benchmark here.
 
-Reproduce using the commands in README.md. Full metrics, integer vectors,
-ROM HEX and baseline/modified logits are in `runs/fixed_21m/` (Git-ignored).
-The installed timm/wandb dependency emitted sandbox temporary-directory cleanup
-warnings at exit; computation passed and the process exited with code 0.
+Uniform rows expose the coarse output resolution: 49 equal scores become codes
+3 (decoded sum 147/127); 196 equal scores become codes 1 (sum 196/127). Independent
+rounding is not sum-preserving. The real-image model check covers one 49-key site;
+other sites, especially 196-key attention, need separate accuracy evaluation.
+The rest of the model remains floating point, including V and P@V/projection.
 
-## RTL verification
+## Software and RTL verification
 
-The standalone `rtl/softmax_row.sv` now implements this contract. ModelSim
-Intel FPGA Edition 10.5b passed all 147 rows (8666 output codes) bit-for-bit
-against the Python integer model, with zero errors and warnings. Tests cover
-input gaps, output backpressure/stability, last markers, invalid lengths,
-signed limits and reset recovery. See `rtl/README.md` for reproduction.
+Nine unit tests passed. They cover a Decimal normalization oracle, signed INT8
+rounding/saturation/byte representation, widened subtraction, ROM bounds, matmul
+output-byte emulation, permutation invariance and explicit probability-mass
+limits. The independent stable float64 softmax reference tests also pass.
 
-## Quartus synthesis and timing
+ModelSim Intel FPGA Edition 10.5b passed 578 rows / 25,999 outputs bit-for-bit
+in 897,599 main-testbench clocks. All 256 score differences and all 196 legal row
+lengths are covered, including 100 real-image rows and 478 synthetic rows.
+Protocol tests cover bubbles, backpressure, invalid lengths, last markers,
+row-length latching and resets during reception/division/stalled output.
+Directed tests check ties and uniform rows, `3*N+26` clocks to first valid and
+27 clocks per subsequent unstalled output. Compile/simulation had zero warnings
+or errors. Quartus device/timing results are recorded in `quartus/README.md`.
+The fixture also contains a 26-key row with exact 0.5-code outputs rounding to
+zero, explicitly distinguishing ties-to-even from the previous half-up rule.
 
-Standalone routed results for Cyclone V `5CSEMA5F31C6`, approximately 90 MHz:
-the original combinational-divider implementation used 2665 ALMs and failed
-setup timing at -69.583 ns. The revised exact iterative divider and synchronous
-memory reads use 222 ALMs, 264 registers, 10 M10K blocks and no DSPs. Worst
-setup slack is +3.188 ns and hold slack +0.129 ns over all four analyzed
-corners. Lowest reported slow-corner Fmax is 126.21 MHz.
+## Reproduce and limitations
 
-The revised RTL still matches all 8666 integer outputs bit-for-bit. Output
-interval increases to 35 cycles. See `quartus/README.md` for constraints,
-warnings, resource/latency tradeoffs and reproduction. Matmul integration
-and integrated-SoC timing have not been performed.
+```powershell
+& '../.venv/Scripts/python.exe' -m unittest discover -s softmax -p 'test_*.py' -v
+& '../.venv/Scripts/python.exe' softmax/evaluate_fixed.py
+& '../.venv/Scripts/python.exe' softmax/generate_rtl_vectors.py
+vsim -c -do softmax/rtl/run_modelsim.do
+```
+
+Existing `runs/reference_21m/` captures are required for software reevaluation;
+`capture_reference.py` can regenerate them from local assets. Reports, signed
+INT8 per-image arrays, ROM/config and logits are in ignored `runs/int8_21m/`.
+The hardware ROM, representative fixtures and metadata are in `example/`.
+Matching data width is not sufficient to connect blocks: upstream attention
+scale/bias and downstream matmul operand scales still need explicit agreement.
+
+The INT8 RTL also passed standalone Quartus synthesis/fitting and four-corner
+90 MHz timing on `5CSEMA5F31C6`: 175 ALMs, 192 registers, 3 M10Ks, 8,800 memory
+bits and zero DSPs. Worst setup slack +3.894 ns, hold +0.113 ns and pulse-width
++4.344 ns; lowest reported slow-corner Fmax 138.56 MHz. All unconstrained counts
+are zero. ModelSim and Quartus used identical core/ROM snapshots; source and
+fixture hashes are in `rtl/verification.json` and `quartus/metrics.json`.
+
+No board was programmed, and no integration or full-model INT8 accuracy is
+claimed. Model evaluation exited successfully; existing timm/wandb dependencies
+emitted sandbox temporary-directory cleanup warnings at exit. The legacy
+ModelSim run required execution outside the sandbox due to DLL relocation.

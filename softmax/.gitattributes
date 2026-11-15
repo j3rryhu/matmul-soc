@@ -1,0 +1,5 @@
+# Preserve source/fixture hashes on Windows and treat CRLF as line endings.
+rtl/*.sv -text whitespace=cr-at-eol
+example/* -text whitespace=cr-at-eol
+quartus/*.sv -text whitespace=cr-at-eol
+quartus/*.sdc -text whitespace=cr-at-eol

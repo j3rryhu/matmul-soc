@@ -4,26 +4,29 @@ module tb_softmax_row;
     always #5 clk=~clk;
     reg reset=1, in_valid=0, out_ready=0;
     wire in_ready, out_valid, out_last;
-    reg signed [15:0] in_score=0;
+    reg signed [7:0] in_score=0;
     reg [7:0] row_length=0;
-    wire [15:0] out_probability;
+    wire signed [7:0] out_probability;
     softmax_row dut(.*);
     reg passed=0;
     integer scores[0:195], expected[0:195];
-    integer fd, rc, n, i, row=0, received=0, cycles=0;
+    integer fd, rc, n, i, row=0, received=0, cycles=0, outputs=0;
+    integer expected_rows, expected_outputs;
     reg [31:0] rng=32'h15cafe;
     reg stalled=0, held_last;
-    reg [15:0] held_probability;
+    reg signed [7:0] held_probability;
     function [31:0] next_rng(input [31:0] x);
         next_rng={x[30:0],x[31]^x[21]^x[1]^x[0]};
     endfunction
     always @(posedge clk) begin
         cycles=cycles+1;
-        if (cycles>1000000) $fatal(1,"Timeout");
+        if (cycles>3000000) $fatal(1,"Timeout");
         if (!reset) begin
             if (stalled && (!out_valid || out_probability !== held_probability || out_last !== held_last))
                 $fatal(1,"Output changed while stalled");
             if (out_valid && in_ready) $fatal(1,"Input accepted while output row active");
+            if (out_valid && out_probability[7]) $fatal(1,"Negative probability code");
+            if (dut.state==8 && dut.rounded_code>127) $fatal(1,"Probability exceeds signed INT8 range");
         end
         stalled <= !reset && out_valid && !out_ready;
         held_probability <= out_probability;
@@ -56,7 +59,7 @@ module tb_softmax_row;
         @(posedge clk); if(in_ready) $fatal(1,"Accepted length >196");
         @(negedge clk); in_valid=0;
         // Abort a partial input row.
-        send_score(123,49); send_score(-456,49); do_reset();
+        send_score(123,49); send_score(-128,49); do_reset();
         // Abort active iterative division, not just reception/output.
         send_score(0,1);
         wait(dut.state == 5 && dut.divide_step == 10);
@@ -69,6 +72,8 @@ module tb_softmax_row;
         @(posedge clk); if(out_valid) $fatal(1,"Stale output after reset");
         fd=$fopen("softmax/example/rows.txt","r");
         if(!fd) $fatal(1,"Missing vectors");
+        rc=$fscanf(fd,"%d %d",expected_rows,expected_outputs);
+        if(rc!=2 || expected_rows<=0 || expected_outputs<=0) $fatal(1,"Invalid header");
         rc=$fscanf(fd,"%d",n);
         while(rc==1) begin
             if(n<1 || n>196) $fatal(1,"Invalid vector length");
@@ -84,10 +89,11 @@ module tb_softmax_row;
                 out_ready=(rng[2:0]!=0 && rng[4:3]!=0);
                 @(posedge clk);
                 if(out_valid && out_ready) begin
-                    if(out_probability !== expected[received])
+                    if($signed(out_probability) !== expected[received])
                         $fatal(1,"Mismatch row %0d index %0d got %0d expected %0d",row,received,out_probability,expected[received]);
                     if(out_last !== (received==n-1)) $fatal(1,"Incorrect out_last");
                     received=received+1;
+                    outputs=outputs+1;
                 end
             end
             @(negedge clk); out_ready=0;
@@ -99,9 +105,9 @@ module tb_softmax_row;
             @(posedge clk);
             if(out_valid) $fatal(1,"Unexpected extra output");
         end
-        if(row!=147) $fatal(1,"Wrong row count: %0d",row);
+        if(row!=expected_rows || outputs!=expected_outputs) $fatal(1,"Wrong vector count");
         passed=1;
-        $display("PASS: %0d rows, integer outputs, stalls, invalid lengths, reset recovery; %0d cycles",row,cycles);
+        $display("PASS: %0d rows, %0d signed INT8 outputs, stalls, invalid lengths, reset recovery; %0d cycles",row,outputs,cycles);
         $finish;
     end
 endmodule

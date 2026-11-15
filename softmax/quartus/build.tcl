@@ -5,7 +5,7 @@ set source_dir [file dirname [file normalize [info script]]]
 if {[llength $argv] > 0} {
     set build_dir [file normalize [lindex $argv 0]]
 } else {
-    set build_dir [file join $source_dir build_current]
+    set build_dir [file join $source_dir build_int8]
 }
 file mkdir $build_dir
 file copy -force [file join $source_dir .. example exp_lut.hex] [file join $build_dir exp_lut.hex]

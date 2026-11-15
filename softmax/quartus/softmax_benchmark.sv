@@ -1,16 +1,16 @@
 // Registered virtual I/O isolates core timing from board/package I/O delays.
 module softmax_benchmark (
     input wire clk, reset, in_valid, out_ready,
-    input wire signed [15:0] in_score,
+    input wire signed [7:0] in_score,
     input wire [7:0] row_length,
     output reg in_ready, out_valid, out_last,
-    output reg [15:0] out_probability
+    output reg signed [7:0] out_probability
 );
     reg reset_r, in_valid_r, out_ready_r;
-    reg signed [15:0] in_score_r;
+    reg signed [7:0] in_score_r;
     reg [7:0] row_length_r;
     wire core_in_ready, core_out_valid, core_out_last;
-    wire [15:0] core_probability;
+    wire signed [7:0] core_probability;
     always @(posedge clk) begin
         reset_r <= reset;
         in_valid_r <= in_valid;
