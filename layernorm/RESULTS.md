@@ -1,7 +1,8 @@
-# INT8 software retest
+# INT8 LayerNorm results
 
-Latest hardware status: the optimized standalone RTL meets the unchanged 90 MHz
-constraint on the DE1-SoC target device. See the final timing-optimization section.
+The standalone RTL meets its 90 MHz constraint on the DE1-SoC target device.
+See the [integrated canvas benchmark](#integrated-canvas-and-cortex-a9-comparison)
+for the controller fit and HPS comparison.
 
 The first section records the demonstration-scale baseline. The calibrated
 INT8 scale results follow below. Input, gamma, beta and
@@ -253,3 +254,42 @@ the passing RTL regression and matching source hashes.
 This meets the standalone 90 MHz target while adding three cycles per output.
 It does not establish integrated-SoC timing, physical I/O timing, board execution
 or an end-to-end inference speedup. The core remains independent of other modules.
+## Integrated canvas and Cortex-A9 comparison
+
+The canvas controller reads completed matmul output with optional GELU,
+normalizes one token across its channels, and writes the result back to the
+same output buffer. See [the host interface](rtl/CANVAS.md).
+
+Quartus Prime Lite 18.1 fitted the canvas controller and core in isolation on
+the Cyclone V `5CSEMA5F31C6`. The row buffers and epsilon ROM use 22,016 bits.
+Coefficient RAM adds 9,216 bits. The fitted total is **31,232 bits in eight
+M10Ks** (2.02% of 397), 844 ALMs, 630 registers and 10 DSP blocks. The design
+reuses the existing matmul output canvas. The standalone controller missed
+75 MHz setup timing by 1.025 ns at the worst corner, with a reported
+slow-corner Fmax of 69.65 MHz. Full SoC timing and fabric board latency
+remain unverified.
+
+| Implementation | Time per 192-channel token |
+| --- | ---: |
+| DE1-SoC HPS FP32, scalar C | 7.76 µs |
+| DE1-SoC HPS INT8, VFP reciprocal estimate with exact integer correction | 40.43 µs |
+| DE1-SoC HPS INT8, exact integer division | 158.13 µs |
+| Fabric INT8, projected at 75 MHz | 141.17 µs |
+| Fabric INT8, projected at the standalone fit's 69.65 MHz Fmax | 152.02 µs |
+
+The HPS medians use seven trials of 12,000 row executions each with GCC 4.6.3
+and `-O3 -mcpu=cortex-a9 -mfpu=neon`. The test uses 24 captured rows, eight
+from each of three validation images, with operands prepared before timing.
+Both INT8 CPU kernels matched all 4,608 expected codes. ModelSim measured
+10,588 cycles from an accepted canvas start to done for one token. The
+projections exclude matmul, HPS bridge traffic and host polling.
+
+The calibrated INT8 replacement at `layers.1.blocks.0.attn.norm` had
+3.485% relative output RMSE against FP32 on the three validation images and
+3.319% over all ten images. Scoring the saved logits against the ImageNet
+classes in those filenames gave 10/10 top-1 and 10/10 top-5 for both FP32 and
+the model with one INT8 LayerNorm replacement. The validation subset gave
+3/3 top-1 for both. Dataset-wide accuracy and a fully quantized model were
+outside this measurement. ModelSim matched all 200,296 standalone INT8
+reference bytes, and the integrated regression passed with GELU enabled
+and bypassed.
