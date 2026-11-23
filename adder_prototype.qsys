@@ -158,7 +158,7 @@
  <parameter name="hdlLanguage" value="VERILOG" />
  <parameter name="hideFromIPCatalog" value="false" />
  <parameter name="lockedInterfaceDefinition" value="" />
- <parameter name="maxAdditionalLatency" value="2" />
+ <parameter name="maxAdditionalLatency" value="3" />
  <parameter name="projectName" value="adder_prototype.qpf" />
  <parameter name="sopcBorderPoints" value="false" />
  <parameter name="systemHash" value="0" />
@@ -201,7 +201,7 @@
   <parameter name="avalonSpec" value="2.0" />
   <parameter name="bigEndian" value="false" />
   <parameter name="burstEnable" value="true" />
-  <parameter name="fifoDepth" value="4096" />
+  <parameter name="fifoDepth" value="256" />
   <parameter name="maxBurstSize" value="1024" />
   <parameter name="minimumDmaTransactionRegisterWidth" value="32" />
   <parameter name="readAddressMap"><![CDATA[<address-map><slave name='axi_conduit_merger_0.altera_axi_slave' start='0x0' end='0x100000000' /></address-map>]]></parameter>
@@ -222,7 +222,7 @@
   <parameter name="avalonSpec" value="2.0" />
   <parameter name="bigEndian" value="false" />
   <parameter name="burstEnable" value="true" />
-  <parameter name="fifoDepth" value="4096" />
+  <parameter name="fifoDepth" value="256" />
   <parameter name="maxBurstSize" value="1024" />
   <parameter name="minimumDmaTransactionRegisterWidth" value="32" />
   <parameter name="readAddressMap"><![CDATA[<address-map><slave name='matmul_accel_0.avalon_slave_0' start='0x0' end='0x20000' /></address-map>]]></parameter>
@@ -330,8 +330,8 @@
   <parameter name="ENABLE_USER_ECC" value="false" />
   <parameter name="EXPORT_AFI_HALF_CLK" value="false" />
   <parameter name="EXTRA_SETTINGS" value="" />
-  <parameter name="F2H_AXI_CLOCK_FREQ" value="90000000" />
-  <parameter name="F2H_SDRAM0_CLOCK_FREQ" value="90000000" />
+  <parameter name="F2H_AXI_CLOCK_FREQ" value="75000000" />
+  <parameter name="F2H_SDRAM0_CLOCK_FREQ" value="75000000" />
   <parameter name="F2H_SDRAM1_CLOCK_FREQ" value="100" />
   <parameter name="F2H_SDRAM2_CLOCK_FREQ" value="100" />
   <parameter name="F2H_SDRAM3_CLOCK_FREQ" value="100" />
@@ -385,10 +385,10 @@
   <parameter name="FPGA_PERIPHERAL_OUTPUT_CLOCK_FREQ_SPIM1_SCLK_OUT" value="100" />
   <parameter name="GPIO_Enable">No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,Yes,Yes,No,Yes,No,No,No,No,Yes,No,Yes,No,Yes,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No,No</parameter>
   <parameter name="GP_Enable" value="false" />
-  <parameter name="H2F_AXI_CLOCK_FREQ" value="90000000" />
+  <parameter name="H2F_AXI_CLOCK_FREQ" value="75000000" />
   <parameter name="H2F_CTI_CLOCK_FREQ" value="100" />
   <parameter name="H2F_DEBUG_APB_CLOCK_FREQ" value="100" />
-  <parameter name="H2F_LW_AXI_CLOCK_FREQ" value="90000000" />
+  <parameter name="H2F_LW_AXI_CLOCK_FREQ" value="75000000" />
   <parameter name="H2F_TPIU_CLOCK_IN_FREQ" value="100" />
   <parameter name="HARD_EMIF" value="true" />
   <parameter name="HCX_COMPAT_MODE" value="false" />
@@ -784,6 +784,7 @@
   <parameter name="ARRAY_ROWS" value="16" />
   <parameter name="AVS_ADDR_WIDTH" value="17" />
   <parameter name="AVS_DATA_WIDTH" value="128" />
+  <parameter name="GELU_LUT_FILE">activation/example/gelu_int8.hex</parameter>
   <parameter name="PE_DATA_WIDTH" value="8" />
  </module>
  <module
@@ -937,7 +938,7 @@
   <parameter name="gui_multiply_factor" value="1" />
   <parameter name="gui_number_of_clocks" value="1" />
   <parameter name="gui_operation_mode" value="direct" />
-  <parameter name="gui_output_clock_frequency0" value="90.0" />
+  <parameter name="gui_output_clock_frequency0" value="75.0" />
   <parameter name="gui_output_clock_frequency1" value="100.0" />
   <parameter name="gui_output_clock_frequency10" value="100.0" />
   <parameter name="gui_output_clock_frequency11" value="100.0" />
@@ -1185,5 +1186,5 @@
  <interconnectRequirement for="$system" name="qsys_mm.clockCrossingAdapter" value="FIFO" />
  <interconnectRequirement for="$system" name="qsys_mm.enableEccProtection" value="FALSE" />
  <interconnectRequirement for="$system" name="qsys_mm.insertDefaultSlave" value="FALSE" />
- <interconnectRequirement for="$system" name="qsys_mm.maxAdditionalLatency" value="2" />
+ <interconnectRequirement for="$system" name="qsys_mm.maxAdditionalLatency" value="3" />
 </system>
