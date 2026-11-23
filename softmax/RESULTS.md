@@ -1,8 +1,29 @@
 # Signed INT8 softmax results
 
-## Radix-4 divider
+## Shortened divider and shared RAM
 
-The current RTL processes two quotient bits per clock. Exact division takes
+Because each exponential is at most the sum, the exact softmax quotient is
+at most 127. Loading the high numerator bits as the initial remainder
+reduces the radix-4 divide from 12 to 4 cycles and the unstalled output
+interval from 16 to 8 cycles. Rounding uses the exact final remainder.
+
+ModelSim measured **654 cycles** from the accepted OBUF command to the last
+Avalon result for 49 keys, down from 1,092. That projects to **8.72 µs at
+75 MHz**, excluding the HPS bridge and host polling. The golden regression
+and integrated test passed, and the comparison matched all 691,488 bytes
+from the saved Cortex-A9 output.
+
+The score row, intermediate exponentials and LUT share one 512 × 16 RAM.
+Each exponential replaces a score after its final use. The current standalone
+fit used **1 M10K (8,192 bits)**, 219 ALMs, 197 registers and zero DSP blocks.
+It passed 90 MHz with +3.566 ns worst setup slack. All 256 exponential LUT
+entries matched the Quartus RAM initialization. The shortened divider with
+separate memories used 3 M10Ks and took the same 654 cycles. The physical
+board timing below is for the earlier one-bit-divider build.
+
+## First radix-4 implementation
+
+The first radix-4 RTL processes two quotient bits per clock. Exact division takes
 12 cycles per output, down from 23. Ties-to-even rounding uses the exact
 remainder. The unstalled output interval is 16 cycles, down from 27.
 

@@ -22,20 +22,23 @@ The core also runs behind the accelerator's Avalon MMIO registers. See
   reset; control ensures only the current complete row is used.
 
 The core buffers scores, finds their maximum, and replays them through a 256x16
-exponential ROM, accumulating a 24-bit sum. Differences widen to signed 9 bits,
-covering 0..255. The internal exponential memory also has 16-bit entries; external
-input/output storage remains INT8. Memories use synchronous reads.
+exponential table, accumulating a 24-bit sum. One synchronous 512x16 RAM holds
+the table at addresses 256–511 and the row scratch space in the lower half.
+Each exponential overwrites its score after the score has been consumed.
+Differences widen to signed 9 bits, covering 0..255. Input and output are INT8.
 
 Each numerator is `e*127`, implemented as shift/subtract, fitting unsigned 23 bits.
-A shared radix-4 restoring divider processes two bits per clock for **12 clocks**.
-A leading zero pads the numerator to an even width. Parallel subtractions choose
-the largest of 0, 1, 2 or 3 times the divisor that fits. A separate state compares twice
+A shared radix-4 restoring divider processes two bits per clock for **4 clocks**.
+Since `e <= S`, the quotient `floor(e*127/S)` fits in seven bits. The
+divider loads `(e*127) >> 8` as its initial remainder and consumes the
+remaining eight numerator bits. Parallel subtractions select the quotient
+digit and next remainder. A separate state compares twice
 the remainder with the sum and applies ties-to-even rounding. Output is bounded
 by 127; its sign bit is zero. The exponential LUT approximates exp only.
 
-For each output there is a weight-read state, normalization-load state, 12 divide
+For each output there is a weight-read state, normalization-load state, 4 divide
 states, a rounding state and an output-transfer state. With no stalls, output
-handshakes are **16 clocks apart**. First valid asserts `3*N+15` clocks after
+handshakes are **8 clocks apart**. First valid asserts `3*N+7` clocks after
 the final input handshake. The directed test measures these timings. Outputs are
 still computed serially.
 

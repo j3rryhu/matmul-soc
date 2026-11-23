@@ -64,7 +64,7 @@ module tb_softmax_row;
         send_score(123,49); send_score(-128,49); do_reset();
         // Abort active iterative division, not just reception/output.
         send_score(0,1);
-        wait(dut.state == 5 && dut.divide_step == 10);
+        wait(dut.state == 5 && dut.divide_step == 2);
         do_reset();
         // Abort a stalled output, ensuring no stale valid survives reset.
         send_score(0,1);
