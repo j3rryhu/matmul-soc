@@ -1,8 +1,28 @@
 # INT8 LayerNorm results
 
-The standalone RTL meets its 90 MHz constraint on the DE1-SoC target device.
-See the [integrated canvas benchmark](#integrated-canvas-and-cortex-a9-comparison)
-for the controller fit and HPS comparison.
+See the [radix-4 divider results](#radix-4-divider) for the current RTL and
+the [integrated canvas benchmark](#integrated-canvas-and-cortex-a9-comparison)
+for the earlier controller fit and HPS comparison.
+
+## Radix-4 divider
+
+The divider consumes two bits per clock and retains the exact remainder for
+ties-to-even rounding. Division takes 21 clocks per channel, down from 41.
+First valid is 58 clocks after the final input, down from 78, and the unstalled
+output interval is 32 clocks, down from 52.
+
+ModelSim measured **6,748 cycles** from the accepted canvas command to the last
+writeback for one 192-channel token, down from 10,588. That projects to
+**89.97 µs** at the configured 75 MHz, excluding bridge traffic and host polling.
+The separate canvas-controller fit missed 75 MHz by 1.413 ns and reported
+a slow-corner Fmax of 67.82 MHz, corresponding to **99.50 µs** for the same
+cycle count. It used 883 ALMs and 8 M10Ks (31,232 bits). Full SoC timing and
+board latency for this revision remain unmeasured.
+
+The standalone golden regression matched all 200,296 INT8 outputs. The
+integrated canvas test passed with GELU enabled and bypassed. The standalone core fit
+used 548 ALMs, 662 registers, 4 M10Ks (22,016 bits), and 8 DSP blocks.
+It passed 90 MHz timing with +0.465 ns worst setup slack.
 
 The first section records the demonstration-scale baseline. The calibrated
 INT8 scale results follow below. Input, gamma, beta and

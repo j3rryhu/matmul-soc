@@ -64,7 +64,7 @@ floor, exactly as in software. All saturation occurs after the affine stage.
 Important widths include signed 18-bit S, unsigned 24-bit Q, unsigned 33-bit D,
 49-bit square-root argument (padded to 50 bits), 25-bit denominator and signed
 41-bit normalization numerator. A 25-step digit-by-digit square root and a
-41-step restoring divider avoid combinational `/` or `$sqrt`. Normalized results
+21-step radix-4 restoring divider avoid combinational `/` or `$sqrt`. Normalized results
 use signed 21-bit storage, the gamma product signed 29-bit storage, and affine
 arithmetic signed 46-bit storage; these cover the software bounds for this
 fixed config. Coefficients are captured into channel registers during the
@@ -136,26 +136,26 @@ simulation script runs both testbenches. To run only the short directed test:
 vsim -c -do "do layernorm/rtl/run_modelsim.do directed"
 ```
 
-ModelSim Intel FPGA Edition 10.5b passed 744 golden rows / 200,296 outputs in
-11,341,664 testbench clocks, plus the four directed tie outputs. Compilation and
-simulation reported zero errors/warnings. The vector set includes 80 real rows,
-664 synthetic rows and 356 saturated outputs. `verification.json` records source
-and fixture hashes. On this Windows setup the legacy 32-bit simulator required
+The golden fixture checks 744 rows / 200,296 outputs, and the directed bench
+checks four tie outputs. The vector set includes 80 real rows, 664 synthetic
+rows and 356 saturated outputs. `verification.json` records the original
+single-bit-divider run and its source and fixture hashes. The legacy 32-bit simulator required
 execution outside the sandbox because sandbox startup failed with a DLL
 relocation error; the simulation itself ran successfully.
 
 ## Latency and current limits
 
-With no stalls, `out_valid` first asserts 78 clocks after the final input
-handshake. Subsequent outputs can transfer every 52 clocks. This is a serialized
-correctness baseline, not a one-channel-per-clock accelerator. The 25-step square
-root is shared across the row; the 41-step division repeats for each channel.
-The original unpipelined affine stage used 75/49 clocks; three registered
-arithmetic stages now trade extra latency for shorter timing paths.
+With no stalls, `out_valid` first asserts **58 clocks** after the final input
+handshake. Subsequent outputs can transfer every **32 clocks**. The 25-step
+square root is shared across the row. A radix-4 restoring divider consumes two
+bits per cycle from the zero-padded magnitude in **21 cycles per channel**.
+Three parallel subtractions select the quotient digit and next remainder.
+The previous one-bit divider used 41 cycles, with 78 clocks to first valid and
+52 clocks between outputs. The controller still processes one channel at a time.
 
 ModelSim bit-exact verification establishes the selected integer behavior only.
-Standalone Quartus synthesis and fitting succeeded, using 510 ALMs, 4 M10Ks and
-8 DSP blocks. The optimized core meets the 90 MHz constraint with worst setup
+The original one-bit-divider standalone fit used 510 ALMs, 4 M10Ks and
+8 DSP blocks. That revision met the 90 MHz constraint with worst setup
 slack +0.321 ns, hold +0.116 ns and pulse-width +4.337 ns. Lowest reported
 slow-corner Fmax is 92.68 MHz. Physical board testing and integrated-SoC timing
 remain pending. No inference speedup is claimed. See `../quartus/README.md`.

@@ -152,7 +152,7 @@ vsim -c -do layernorm/rtl/run_modelsim.do
 The calibrated core passed bit-exact ModelSim checks on 744 rows / 200,296
 golden outputs, plus directed signed half-tie rounding and latency checks.
 All 576 legal row lengths, reset recovery and output backpressure are covered.
-The optimized core passes Quartus synthesis/fitting and 90 MHz timing on the
+The earlier single-bit-divider core passed Quartus synthesis/fitting and 90 MHz timing on the
 DE1-SoC target device (worst setup +0.321 ns, reported slow-corner Fmax 92.68 MHz).
 All golden outputs remain unchanged; first-valid/output-interval latency is now
 78/52 clocks, trading three extra stages for shorter timing paths.

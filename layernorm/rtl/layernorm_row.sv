@@ -52,18 +52,28 @@ module layernorm_row #(
     wire signed [18:0] centered = $signed({1'b0,length})*$signed(data_value)-$signed(total);
     wire signed [40:0] normalize_numerator = $signed({{22{centered[18]}},centered}) <<< 22;
     wire [40:0] normalize_magnitude = normalize_numerator[40] ? -normalize_numerator : normalize_numerator;
-    // Restoring unsigned division, 41 cycles; round quotient separately.
-    reg [40:0] dividend;
+    // Radix-4 restoring division. Pad the magnitude to 42 bits so each
+    // of the 21 iterations consumes one bit pair. Round separately.
+    reg [41:0] dividend;
     reg [25:0] remainder;
-    reg [5:0] divide_step;
+    reg [4:0] divide_step;
     reg negative;
-    wire [25:0] divide_trial = {remainder[24:0],dividend[40]};
-    wire divide_bit = divide_trial >= {1'b0,denominator};
-    wire [40:0] next_dividend = {dividend[39:0],divide_bit};
+    reg [26:0] triple_denominator;
+    // Remainder < denominator, so each trial is < 4*denominator.
+    // Compare and subtract all three candidates in parallel using borrow bits.
+    wire [26:0] divide_trial = {remainder[24:0], dividend[41:40]};
+    wire [27:0] minus_one = {1'b0, divide_trial} - {3'b0, denominator};
+    wire [27:0] minus_two = {1'b0, divide_trial} - {2'b0, denominator, 1'b0};
+    wire [27:0] minus_three = {1'b0, divide_trial} - {1'b0, triple_denominator};
+    wire [1:0] digit = !minus_two[27] ? {1'b1, !minus_three[27]} :
+                                       {1'b0, !minus_one[27]};
+    wire [25:0] next_remainder = !minus_three[27] ? minus_three[25:0] :
+                                 !minus_two[27]   ? minus_two[25:0] :
+                                 !minus_one[27]   ? minus_one[25:0] : divide_trial[25:0];
     wire [26:0] twice_remainder = {remainder,1'b0};
     wire round_normalize = (twice_remainder > {2'b0,denominator}) ||
                          ((twice_remainder == {2'b0,denominator}) && dividend[0]);
-    wire [41:0] rounded_magnitude = {1'b0,dividend} + {{41{1'b0}},round_normalize};
+    wire [41:0] rounded_magnitude = dividend + {{41{1'b0}},round_normalize};
     // For N<=576, |z| <= 2*(floor(sqrt(575*2^28))+1) < 2^20,
     // including floor-root error and normalization rounding. Signed 21 bits
     // therefore preserve the exact integer result; 21x8 needs 29 signed bits.
@@ -107,6 +117,7 @@ module layernorm_row #(
             radicand <= 0; root_remainder <= 0; root_result <= 0;
             denominator <= 0; root_step <= 0;
             dividend <= 0; remainder <= 0; divide_step <= 0; negative <= 0;
+            triple_denominator <= 0;
             normalized <= 0; norm_gamma <= 0; affine <= 0;
             gamma_channel <= 0; beta_channel <= 0;
             scale_high <= 0; scale_low <= 0; scale_beta <= 0;
@@ -150,21 +161,24 @@ module layernorm_row #(
                         state <= READ;
                     end else root_step <= root_step+1'b1;
                 end
-                READ: state <= WAIT_READ;
+                READ: begin
+                    triple_denominator <= {1'b0, denominator, 1'b0} + {2'b0, denominator};
+                    state <= WAIT_READ;
+                end
                 WAIT_READ: begin
                     gamma_channel <= gamma_value;
                     beta_channel <= beta_value;
                     state <= NORM_INIT;
                 end
                 NORM_INIT: begin
-                    dividend <= normalize_magnitude; remainder <= 0; divide_step <= 0;
+                    dividend <= {1'b0, normalize_magnitude}; remainder <= 0; divide_step <= 0;
                     negative <= normalize_numerator[40];
                     state <= DIVIDE;
                 end
                 DIVIDE: begin
-                    dividend <= next_dividend;
-                    remainder <= divide_bit ? divide_trial-{1'b0,denominator} : divide_trial;
-                    if (divide_step == 40) state <= NORM_ROUND;
+                    dividend <= {dividend[39:0], digit};
+                    remainder <= next_remainder;
+                    if (divide_step == 20) state <= NORM_ROUND;
                     else divide_step <= divide_step+1'b1;
                 end
                 NORM_ROUND: begin

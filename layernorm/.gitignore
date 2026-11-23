@@ -7,3 +7,4 @@ rtl/*.wlf
 quartus/build_current/
 quartus/build_pipelined/
 quartus/build_timing2/
+quartus/build_radix4/
