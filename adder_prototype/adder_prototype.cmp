@@ -1,11 +1,5 @@
 	component adder_prototype is
 		port (
-			axi_signals_arcache             : in    std_logic_vector(3 downto 0)  := (others => 'X'); -- arcache
-			axi_signals_arprot              : in    std_logic_vector(2 downto 0)  := (others => 'X'); -- arprot
-			axi_signals_aruser              : in    std_logic_vector(4 downto 0)  := (others => 'X'); -- aruser
-			axi_signals_awcache             : in    std_logic_vector(3 downto 0)  := (others => 'X'); -- awcache
-			axi_signals_awprot              : in    std_logic_vector(2 downto 0)  := (others => 'X'); -- awprot
-			axi_signals_awuser              : in    std_logic_vector(4 downto 0)  := (others => 'X'); -- awuser
 			clk_clk                         : in    std_logic                     := 'X';             -- clk
 			hps_io_hps_io_emac0_inst_TX_CLK : out   std_logic;                                        -- hps_io_emac0_inst_TX_CLK
 			hps_io_hps_io_emac0_inst_TXD0   : out   std_logic;                                        -- hps_io_emac0_inst_TXD0

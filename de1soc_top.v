@@ -102,14 +102,8 @@ module de1soc_top(
 	   .memory_mem_dqs_n                (HPS_DDR3_DQS_N),
 	   .memory_mem_odt                  (HPS_DDR3_ODT),
 	   .memory_mem_dm                   (HPS_DDR3_DM),
-	   .memory_oct_rzqin                (HPS_DDR3_RZQ),
+	   .memory_oct_rzqin                (HPS_DDR3_RZQ)
 		
-		.axi_signals_arcache					(4'b0111),             // axi_signals.arcache
-		.axi_signals_arprot              (3'b000),//            .arprot
-		.axi_signals_aruser              (5'b00001), //            .aruser
-		.axi_signals_awcache             (4'b0111),//            .awcache
-		.axi_signals_awprot              (3'b000),//            .awprot
-		.axi_signals_awuser              (5'b00001)//            .awuser
 	);
 
 endmodule
