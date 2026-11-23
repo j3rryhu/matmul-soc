@@ -9,8 +9,10 @@
 #define SOFTMAX_LENGTH_OFFSET 0x100u
 #define SOFTMAX_SCORE_OFFSET  0x110u
 #define SOFTMAX_RESULT_OFFSET 0x120u
+#define SOFTMAX_OBUF_OFFSET   0x130u
 #define SOFTMAX_VALID         (1u << 8)
 #define SOFTMAX_LAST          (1u << 9)
+#define SOFTMAX_OBUF_ERROR    (1u << 12)
 #define SOFTMAX_MAX_LENGTH    196u
 #define SOFTMAX_SCORE_SCALE   0.11335523860661063
 #define SOFTMAX_PROB_SCALE    (1.0 / 127.0)
@@ -22,8 +24,29 @@ static inline void softmax_write(volatile uint8_t *accel, size_t offset, uint32_
     __sync_synchronize();
 }
 
-/* One caller owns the device for the duration of a row. poll_limit is the
- * maximum number of empty MMIO polls per probability. */
+/* poll_limit is the maximum number of MMIO reads per probability. */
+static inline int softmax_read_row(volatile uint8_t *accel, int8_t *probabilities,
+                                   size_t length, unsigned poll_limit)
+{
+    volatile uint32_t *result = (volatile uint32_t *)(accel + SOFTMAX_RESULT_OFFSET);
+    for (size_t key = 0; key < length; ++key) {
+        uint32_t word = 0;
+        for (unsigned poll = 0; poll < poll_limit; ++poll) {
+            word = *result;
+            if (word & (SOFTMAX_VALID | SOFTMAX_OBUF_ERROR))
+                break;
+        }
+        if ((word & SOFTMAX_OBUF_ERROR) || !(word & SOFTMAX_VALID) ||
+            !!(word & SOFTMAX_LAST) != (key == length - 1)) {
+            softmax_write(accel, SOFTMAX_LENGTH_OFFSET, 0);
+            return (word & (SOFTMAX_VALID | SOFTMAX_OBUF_ERROR)) ? -EIO : -ETIMEDOUT;
+        }
+        probabilities[key] = (int8_t)(word & 0x7fu);
+    }
+    return 0;
+}
+
+/* One caller owns the device for the duration of a row. */
 static inline int softmax_row_mmio(volatile uint8_t *accel, const int8_t *scores,
                                    int8_t *probabilities, size_t length,
                                    unsigned poll_limit)
@@ -35,23 +58,22 @@ static inline int softmax_row_mmio(volatile uint8_t *accel, const int8_t *scores
     softmax_write(accel, SOFTMAX_LENGTH_OFFSET, (uint32_t)length);
     for (size_t key = 0; key < length; ++key)
         softmax_write(accel, SOFTMAX_SCORE_OFFSET, (uint8_t)scores[key]);
+    return softmax_read_row(accel, probabilities, length, poll_limit);
+}
 
-    volatile uint32_t *result = (volatile uint32_t *)(accel + SOFTMAX_RESULT_OFFSET);
-    for (size_t key = 0; key < length; ++key) {
-        uint32_t word = 0;
-        for (unsigned poll = 0; poll < poll_limit; ++poll) {
-            word = *result;
-            if (word & SOFTMAX_VALID)
-                break;
-        }
-        if (!(word & SOFTMAX_VALID) ||
-            !!(word & SOFTMAX_LAST) != (key == length - 1)) {
-            softmax_write(accel, SOFTMAX_LENGTH_OFFSET, 0);
-            return (word & SOFTMAX_VALID) ? -EIO : -ETIMEDOUT;
-        }
-        probabilities[key] = (int8_t)(word & 0x7fu);
-    }
-    return 0;
+/* canvas_offset is the byte offset of a padded row within OBUF. After the
+ * producer finishes, its scores must already be in the softmax input units. */
+static inline int softmax_obuf_row_mmio(volatile uint8_t *accel, size_t canvas_offset,
+                                        int8_t *probabilities, size_t length,
+                                        unsigned poll_limit)
+{
+    if (length == 0 || length > SOFTMAX_MAX_LENGTH || poll_limit == 0 ||
+        (canvas_offset & 15u) || canvas_offset > 65536u - length)
+        return -EINVAL;
+
+    softmax_write(accel, SOFTMAX_OBUF_OFFSET, ((uint32_t)length << 16) |
+                                           (uint32_t)canvas_offset);
+    return softmax_read_row(accel, probabilities, length, poll_limit);
 }
 
 /* Convert one TinyViT query row. qk_scale is the real value of one OBUF

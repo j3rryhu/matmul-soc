@@ -62,6 +62,7 @@ module accel_top #(
     localparam logic [31:0] SOFTMAX_LENGTH = 32'h0100;
     localparam logic [31:0] SOFTMAX_SCORE  = 32'h0110;
     localparam logic [31:0] SOFTMAX_RESULT = 32'h0120;
+    localparam logic [31:0] SOFTMAX_OBUF   = 32'h0130;
     localparam logic [31:0] BBUF_BASE = 32'h0000_0800, BBUF_SIZE = 32'h0000_0400; // bias_buffer (256 x int32), 10-bit addr, write-only
     localparam logic [31:0] WBUF_BASE = 32'h0000_1000, WBUF_SIZE = 32'h0000_4000; // weight_buffer (banked), 14-bit addr
     localparam logic [31:0] IBUF_BASE = 32'h0000_5000, IBUF_SIZE = 32'h0000_4000; // input_buffer (banked),  14-bit addr
@@ -150,6 +151,9 @@ module accel_top #(
     logic [10:0] burst_cnt_buf;
     logic [AVS_ADDR_WIDTH-1:0] addr_buf;
     wire  read_valid;
+    wire  softmax_fetch_busy;
+    wire  softmax_owns_obuf = softmax_fetch_busy && sel_obuf;
+    wire  softmax_blocks_start = softmax_fetch_busy && avs_write && (avs_address == CTRL_BASE);
     wire  rf_data_valid;     // a CTRL beat is in ctrl_rdata this cycle (ctrl_rf section)
     logic obuf_data_valid;   // an OBUF beat is in obuf_ext_q this cycle (output_buffer section)
     logic obuf_pipe_busy;    // OBUF beats still in the remap/RAM pipeline
@@ -163,7 +167,8 @@ module accel_top #(
     // out (its address goes through buf_addr_remap first), so obuf_pipe_busy
     // holds off the next command until those beats have drained - a CTRL
     // beat can never overtake or land on top of a late OBUF beat.
-    assign avs_waitrequest = (avs_read && !accepted) || burst_busy || obuf_pipe_busy;
+    assign avs_waitrequest = (avs_read && (!accepted || softmax_owns_obuf)) ||
+                             burst_busy || obuf_pipe_busy || softmax_blocks_start;
 
     // An Avalon master holds write/address/writedata stable until
     // avs_waitrequest drops, so avs_write on its own means "a write is
@@ -201,7 +206,7 @@ module accel_top #(
             avs_readdatavalid <= read_valid;
             avs_readdata      <= read_data;
 
-            if(avs_read && !rd_burst_on && !obuf_pipe_busy)begin
+            if(avs_read && !rd_burst_on && !obuf_pipe_busy && !softmax_owns_obuf)begin
                 addr_buf <= avs_address + BYTES_PER_WORD;
                 accepted <= 1;
                 burst_cnt_buf <= avs_burstcount == 0 ? 1 : avs_burstcount;
@@ -392,12 +397,15 @@ module accel_top #(
     // host word fetched this cycle: the burst's first word while the read
     // is still stalled, then one word per delivering cycle (one word past
     // the end of the burst is fetched too - harmless, never marked valid)
-    wire                        obuf_host_rden  = (avs_read && sel_obuf) || (rd_burst_on && sel_obuf_r);
+    wire                        obuf_host_rden  = !softmax_fetch_busy &&
+        ((avs_read && sel_obuf) || (rd_burst_on && sel_obuf_r));
     wire [OBUF_RADDR_WIDTH-1:0] obuf_host_raddr =
         (rd_burst_on ? (addr_buf - OBUF_BASE) : (avs_address - OBUF_BASE)) >> WORD_SHIFT;
     wire                        obuf_ext_rden;
     wire [OBUF_RADDR_WIDTH-1:0] obuf_ext_rdaddress;
     logic [AVS_DATA_WIDTH-1:0]  obuf_ext_q;
+    wire softmax_fetch_word;
+    logic [OBUF_RADDR_WIDTH-1:0] softmax_obuf_word;
 
     buf_addr_remap #(
         .DATA_WIDTH       (1),     // address only - nothing rides along on a read
@@ -407,9 +415,9 @@ module accel_top #(
         .BANK_WADDR_WIDTH (OBUF_BANK_RADDR_WIDTH)
     ) u_obuf_remap (
         .clk        (clk),
-        .host_waddr (obuf_host_raddr),
+        .host_waddr (softmax_fetch_busy ? softmax_obuf_word : obuf_host_raddr),
         .host_wdata (1'b0),
-        .host_wren  (obuf_host_rden),
+        .host_wren  (obuf_host_rden || softmax_fetch_word),
         .row_words  (obuf_rd_pitch_words),
         .bank_waddr (obuf_ext_rdaddress),
         .bank_wdata (),
@@ -695,29 +703,98 @@ module accel_top #(
     // immediately. A valid result is consumed only on the accepted first beat.
     logic [7:0] softmax_length;
     logic softmax_abort;
+    logic softmax_obuf_error;
+    typedef enum logic [1:0] {SM_IDLE, SM_FETCH, SM_WAIT, SM_SEND} softmax_fetch_state_t;
+    softmax_fetch_state_t softmax_fetch_state;
+    logic [OBUF_RD_LAT:0] softmax_fetch_pipe;
+    logic [AVS_DATA_WIDTH-1:0] softmax_obuf_data;
+    logic [WORD_SHIFT-1:0] softmax_byte_lane;
+    logic [7:0] softmax_remaining;
     wire softmax_in_ready, softmax_out_valid, softmax_out_last;
     wire signed [7:0] softmax_probability;
     wire softmax_pop = softmax_read_valid && softmax_first_beat;
-    wire [10:0] softmax_result = {softmax_in_ready, softmax_out_last,
+    wire [12:0] softmax_result = {softmax_obuf_error, softmax_fetch_busy,
+                                  softmax_in_ready && !softmax_fetch_busy, softmax_out_last,
                                   softmax_out_valid, softmax_probability};
+    wire softmax_length_write = avs_write_accepted && avs_byteenable[0] &&
+                                avs_address == SOFTMAX_LENGTH;
+    wire softmax_cancel = softmax_length_write && avs_writedata[7:0] == 0;
+    wire softmax_obuf_command = avs_write_accepted && (&avs_byteenable[2:0]) &&
+                                 avs_address == SOFTMAX_OBUF;
+    wire [7:0] softmax_obuf_length = avs_writedata[23:16];
+    wire [16:0] softmax_obuf_end = {1'b0, avs_writedata[15:0]} +
+                                   {9'b0, softmax_obuf_length};
+    wire softmax_start_obuf = softmax_obuf_command && !softmax_fetch_busy &&
+                             matmul_complete && !matmul_busy && !matmul_start && !out_raw &&
+                             avs_writedata[WORD_SHIFT-1:0] == 0 &&
+                             softmax_obuf_length != 0 && softmax_obuf_length <= 196 &&
+                             softmax_obuf_end <= OBUF_SIZE;
+    assign softmax_fetch_busy = softmax_fetch_state != SM_IDLE;
+    assign softmax_fetch_word = softmax_fetch_state == SM_FETCH;
 
     always_ff @(posedge clk) begin
         if (!reset_n) begin
             softmax_length <= 0;
             softmax_abort <= 0;
+            softmax_obuf_error <= 0;
         end else begin
-            softmax_abort <= 0;
-            if (avs_write_accepted && avs_byteenable[0] && avs_address == SOFTMAX_LENGTH) begin
+            softmax_abort <= softmax_cancel || softmax_start_obuf;
+            if (softmax_obuf_command)
+                softmax_obuf_error <= !softmax_start_obuf;
+            if (softmax_cancel)
+                softmax_obuf_error <= 0;
+            if (softmax_start_obuf)
+                softmax_length <= softmax_obuf_length;
+            else if (softmax_length_write && (!softmax_fetch_busy || softmax_cancel))
                 softmax_length <= avs_writedata[7:0];
-                softmax_abort <= avs_writedata[7:0] == 0;
-            end
         end
     end
 
+    // Reuse the normal OBUF bank mapping and RAM read port. Buffer a wide
+    // word and shift one actual score per core handshake, skipping padding.
+    always_ff @(posedge clk) begin
+        if (!reset_n || softmax_cancel) begin
+            softmax_fetch_state <= SM_IDLE;
+            softmax_fetch_pipe <= '0;
+            softmax_obuf_word <= '0;
+            softmax_byte_lane <= '0;
+            softmax_remaining <= '0;
+        end else begin
+            softmax_fetch_pipe <= {softmax_fetch_pipe[OBUF_RD_LAT-1:0], softmax_fetch_word};
+            case (softmax_fetch_state)
+                SM_IDLE: if (softmax_start_obuf) begin
+                    softmax_obuf_word <= avs_writedata[15:WORD_SHIFT];
+                    softmax_remaining <= softmax_obuf_length;
+                    softmax_fetch_state <= SM_FETCH;
+                end
+                SM_FETCH: softmax_fetch_state <= SM_WAIT;
+                SM_WAIT: if (softmax_fetch_pipe[OBUF_RD_LAT]) begin
+                    softmax_obuf_data <= obuf_ext_q;
+                    softmax_byte_lane <= '0;
+                    softmax_fetch_state <= SM_SEND;
+                end
+                SM_SEND: if (softmax_in_ready) begin
+                    softmax_obuf_data <= softmax_obuf_data >> 8;
+                    softmax_remaining <= softmax_remaining - 1'b1;
+                    softmax_byte_lane <= softmax_byte_lane + 1'b1;
+                    if (softmax_remaining == 1)
+                        softmax_fetch_state <= SM_IDLE;
+                    else if (softmax_byte_lane == BYTES_PER_WORD-1) begin
+                        softmax_obuf_word <= softmax_obuf_word + 1'b1;
+                        softmax_fetch_state <= SM_FETCH;
+                    end
+                end
+            endcase
+        end
+    end
+
+    wire softmax_mmio_score = !softmax_fetch_busy && avs_write_accepted &&
+                              avs_byteenable[0] && avs_address == SOFTMAX_SCORE;
     softmax_row u_softmax (
         .clk(clk), .reset(!reset_n || softmax_abort),
-        .in_valid(avs_write_accepted && avs_byteenable[0] && avs_address == SOFTMAX_SCORE),
-        .in_ready(softmax_in_ready), .in_score(avs_writedata[7:0]),
+        .in_valid(softmax_fetch_state == SM_SEND || softmax_mmio_score),
+        .in_ready(softmax_in_ready),
+        .in_score(softmax_fetch_busy ? softmax_obuf_data[7:0] : avs_writedata[7:0]),
         .row_length(softmax_length), .out_valid(softmax_out_valid),
         .out_ready(softmax_pop), .out_probability(softmax_probability),
         .out_last(softmax_out_last)
@@ -727,7 +804,7 @@ module accel_top #(
     // while obuf_pipe_busy, and an OBUF beat is only ever valid then.
     assign read_data = obuf_data_valid ? obuf_ext_q :
                        rf_data_valid   ? ctrl_rdata :
-                       softmax_pop     ? {{(AVS_DATA_WIDTH-11){1'b0}}, softmax_result} : '0;
+                       softmax_pop     ? {{(AVS_DATA_WIDTH-13){1'b0}}, softmax_result} : '0;
 
     // ============================================================
     // input_dispatch - streams input_buffer into the array's left edge,
