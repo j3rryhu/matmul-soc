@@ -64,3 +64,21 @@ The ModelSim test uses the real accelerator RAMs and Avalon transfers for a
 synthetic 49-key QK → softmax → P×V path, and separately verifies GELU on
 matmul output. The SoC PLL targets 75 MHz. Check
 `output_files/adder_prototype.sta.summary` after a fresh fit.
+
+The integrated Cyclone V build completed in Quartus Prime Lite 18.1
+using a scratch copy with the Platform Designer IP version tags adapted
+from 23.1 to 18.1. TimeQuest reported the fabric PLL at 75.0 MHz
+(13.333 ns), with zero total negative slack in all four corners.
+
+| Fabric PLL check | Worst slack across four corners |
+| --- | ---: |
+| Setup | +3.260 ns |
+| Hold | +0.107 ns |
+| Recovery | +5.344 ns |
+| Removal | +0.311 ns |
+| Minimum pulse width | +5.405 ns |
+
+TimeQuest reported zero unconstrained clocks. It also listed external
+HPS and JTAG I/O ports without delay constraints. The timing result covers
+the FPGA clocked logic and the report's constrained paths. Board execution
+and full TinyViT inference were outside this validation.
