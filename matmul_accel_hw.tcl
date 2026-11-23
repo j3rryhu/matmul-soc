@@ -58,6 +58,8 @@ add_fileset_file weight_buffer_32_bank.v VERILOG PATH matmul_accel/weight_buffer
 add_fileset_file buf_addr_remap.v VERILOG PATH matmul_accel/buf_addr_remap.v
 add_fileset_file bias_buffer_32_bank.v VERILOG PATH matmul_accel/bias_buffer_32_bank.v
 add_fileset_file psum_buffer_32_bank.v VERILOG PATH matmul_accel/psum_buffer_32_bank.v
+add_fileset_file softmax_row.sv SYSTEM_VERILOG PATH softmax/rtl/softmax_row.sv
+add_fileset_file exp_lut.hex OTHER PATH softmax/example/exp_lut.hex
 add_fileset_file gelu_int8.sv SYSTEM_VERILOG PATH matmul_accel/activation/rtl/gelu_int8.sv
 
 

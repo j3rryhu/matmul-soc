@@ -5,7 +5,8 @@ codes 0..127, zero point zero. Decode an output as `code/127`. Input real scale
 is 0.11335523860661063 for the supplied calibrated ROM. This replaces the former
 16-bit input/16-bit output interface, so any external wrapper must update widths
 and scale interpretation. The repository's benchmark and testbenches are updated.
-The block is standalone; no matmul/GELU/LayerNorm/SoC connection is added.
+The core also runs behind the accelerator's Avalon MMIO registers. See
+[SoC integration](../SOC_INTEGRATION.md) for its host interface.
 
 ## Interface and algorithm
 

@@ -1,5 +1,12 @@
 # Matmul readout integration
 
+The current SoC uses main's GELU in `matmul_accel/output_loader.v`.
+Its bias buffer stores signed INT32 values in accumulator units and
+`ACT_CFG` at `0x0090` configures bias and GELU. For current HPS usage see
+`test_program/new_tiling_test/test4_bias_gelu.c`. The readout design and
+register map below describe the earlier implementation. The combined
+Avalon regression runs through `softmax/rtl/run_soc_modelsim.do`.
+
 Row mapping and bias read are shared by all bytes of a wide word. Row mapping
 uses parallel comparisons against constant multiples of the row length in
 words, replacing the runtime divider. The selected row index is registered

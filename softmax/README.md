@@ -1,10 +1,11 @@
-# Standalone signed INT8 attention softmax
+# Signed INT8 attention softmax
 
 The `softmax` branch now uses the same external storage convention as the
 matmul, GELU and standalone LayerNorm blocks: signed INT8, zero point zero,
 explicit real-value scales. This replaces the former signed INT16 input and
-unsigned UINT16 probability interface. No SoC, matmul or activation wiring changes
-are included. The existing activation implementation is GELU.
+unsigned UINT16 probability interface. The SoC exposes softmax alongside
+matmul and GELU through the existing Avalon slave. See
+[SoC integration](SOC_INTEGRATION.md) for register access and TinyViT layout.
 
 | Boundary | Code range | Real value |
 | --- | --- | --- |

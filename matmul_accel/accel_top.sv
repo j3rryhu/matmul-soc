@@ -59,6 +59,9 @@ module accel_top #(
     // Memory map (byte addresses)
     // ============================================================
     localparam logic [31:0] CTRL_BASE = 32'h0000_0000, CTRL_SIZE = 32'h0000_0100;
+    localparam logic [31:0] SOFTMAX_LENGTH = 32'h0100;
+    localparam logic [31:0] SOFTMAX_SCORE  = 32'h0110;
+    localparam logic [31:0] SOFTMAX_RESULT = 32'h0120;
     localparam logic [31:0] BBUF_BASE = 32'h0000_0800, BBUF_SIZE = 32'h0000_0400; // bias_buffer (256 x int32), 10-bit addr, write-only
     localparam logic [31:0] WBUF_BASE = 32'h0000_1000, WBUF_SIZE = 32'h0000_4000; // weight_buffer (banked), 14-bit addr
     localparam logic [31:0] IBUF_BASE = 32'h0000_5000, IBUF_SIZE = 32'h0000_4000; // input_buffer (banked),  14-bit addr
@@ -140,6 +143,8 @@ module accel_top #(
     logic burst_busy;
     logic sel_ctrl_r;
     logic sel_obuf_r;
+    logic sel_softmax_r;
+    logic softmax_first_beat;
     logic rd_burst_on;
 
     logic [10:0] burst_cnt_buf;
@@ -149,7 +154,8 @@ module accel_top #(
     logic obuf_data_valid;   // an OBUF beat is in obuf_ext_q this cycle (output_buffer section)
     logic obuf_pipe_busy;    // OBUF beats still in the remap/RAM pipeline
     wire [AVS_DATA_WIDTH-1:0] read_data;   // the beat's data (read mux, further down)
-    assign read_valid = rf_data_valid || obuf_data_valid;
+    wire softmax_read_valid = rd_burst_on && sel_softmax_r;
+    assign read_valid = rf_data_valid || obuf_data_valid || softmax_read_valid;
     // One read in flight at a time (maximumPendingReadTransactions = 1): a
     // new read stalls a cycle before it is accepted, and burst_busy holds
     // off every command for the rest of a multi-beat burst. An output-buffer
@@ -180,6 +186,8 @@ module accel_top #(
             addr_buf <= 0;
             sel_ctrl_r <= 0;
             sel_obuf_r <= 0;
+            sel_softmax_r <= 0;
+            softmax_first_beat <= 0;
             rd_burst_on <= 0;
             avs_readdatavalid <= 0;
             avs_readdata <= 0;
@@ -199,6 +207,8 @@ module accel_top #(
                 burst_cnt_buf <= avs_burstcount == 0 ? 1 : avs_burstcount;
                 sel_ctrl_r <= sel_ctrl;
                 sel_obuf_r <= sel_obuf;
+                sel_softmax_r <= avs_address == SOFTMAX_RESULT;
+                softmax_first_beat <= avs_address == SOFTMAX_RESULT;
                 rd_burst_on <= 1;
             end
 
@@ -207,11 +217,13 @@ module accel_top #(
             end
 
             if(rd_burst_on)begin
+                softmax_first_beat <= 0;
                 burst_cnt_buf <= burst_cnt_buf - 1;
                 addr_buf <= addr_buf + BYTES_PER_WORD;
                 if(burst_cnt_buf == 1)begin
                     sel_ctrl_r <= 0;
                     sel_obuf_r <= 0;
+                    sel_softmax_r <= 0;
                     rd_burst_on <= 0;
                     accepted <= 0;
                     burst_busy <= 0;
@@ -679,10 +691,43 @@ module accel_top #(
     // ============================================================
     // Avalon read mux / waitrequest
     // ============================================================
+    // One host-owned attention row at a time. An empty read returns VALID=0
+    // immediately. A valid result is consumed only on the accepted first beat.
+    logic [7:0] softmax_length;
+    logic softmax_abort;
+    wire softmax_in_ready, softmax_out_valid, softmax_out_last;
+    wire signed [7:0] softmax_probability;
+    wire softmax_pop = softmax_read_valid && softmax_first_beat;
+    wire [10:0] softmax_result = {softmax_in_ready, softmax_out_last,
+                                  softmax_out_valid, softmax_probability};
+
+    always_ff @(posedge clk) begin
+        if (!reset_n) begin
+            softmax_length <= 0;
+            softmax_abort <= 0;
+        end else begin
+            softmax_abort <= 0;
+            if (avs_write_accepted && avs_byteenable[0] && avs_address == SOFTMAX_LENGTH) begin
+                softmax_length <= avs_writedata[7:0];
+                softmax_abort <= avs_writedata[7:0] == 0;
+            end
+        end
+    end
+
+    softmax_row u_softmax (
+        .clk(clk), .reset(!reset_n || softmax_abort),
+        .in_valid(avs_write_accepted && avs_byteenable[0] && avs_address == SOFTMAX_SCORE),
+        .in_ready(softmax_in_ready), .in_score(avs_writedata[7:0]),
+        .row_length(softmax_length), .out_valid(softmax_out_valid),
+        .out_ready(softmax_pop), .out_probability(softmax_probability),
+        .out_last(softmax_out_last)
+    );
+
     // OBUF and CTRL beats never share a cycle: a CTRL read cannot start
     // while obuf_pipe_busy, and an OBUF beat is only ever valid then.
     assign read_data = obuf_data_valid ? obuf_ext_q :
-                       rf_data_valid   ? ctrl_rdata : '0;
+                       rf_data_valid   ? ctrl_rdata :
+                       softmax_pop     ? {{(AVS_DATA_WIDTH-11){1'b0}}, softmax_result} : '0;
 
     // ============================================================
     // input_dispatch - streams input_buffer into the array's left edge,
