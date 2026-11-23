@@ -1,6 +1,26 @@
 # Signed INT8 softmax results
 
-## Matched TinyViT comparison
+## Radix-4 divider
+
+The current RTL processes two quotient bits per clock. Exact division takes
+12 cycles per output, down from 23. Ties-to-even rounding uses the exact
+remainder. The unstalled output interval is 16 cycles, down from 27.
+
+The integrated ModelSim test measured **1,092 cycles** from the accepted
+direct OBUF command to the last Avalon result for a 49-key row, down from
+1,536 cycles. That is **14.56 µs at 75 MHz** in simulation. This excludes the
+HPS bridge and host polling, and the physical board latency below is from
+the earlier one-bit-divider build.
+
+The 578-row golden regression matched all 25,999 output bytes. The benchmark
+regression also matched all 691,488 bytes from the saved Cortex-A9 output.
+The integrated test passed for raw QK, biased QK, GELU output and P×V readback.
+The standalone Cyclone V fit used 214 ALMs, 213 registers, 3 M10Ks
+(8,800 bits), and no DSP blocks. It passed 90 MHz timing with +4.418 ns
+worst setup slack. The revised full SoC timing and board performance
+remain unmeasured.
+
+## Matched TinyViT comparison for the one-bit divider
 
 The benchmark uses all 14,112 rows of 49 keys from the three validation
 images at `tiny_vit_21m_224/layers.1.blocks.0.attn`. Each score already

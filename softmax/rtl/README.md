@@ -27,17 +27,17 @@ covering 0..255. The internal exponential memory also has 16-bit entries; extern
 input/output storage remains INT8. Memories use synchronous reads.
 
 Each numerator is `e*127`, implemented as shift/subtract, fitting unsigned 23 bits.
-A shared restoring divider processes one bit per clock for **23 clocks** using
-shifts, comparisons and subtraction, with a 25-bit remainder. It is not a
-reciprocal lookup table or a combinational `/`. A separate state compares twice
+A shared radix-4 restoring divider processes two bits per clock for **12 clocks**.
+A leading zero pads the numerator to an even width. Parallel subtractions choose
+the largest of 0, 1, 2 or 3 times the divisor that fits. A separate state compares twice
 the remainder with the sum and applies ties-to-even rounding. Output is bounded
 by 127; its sign bit is zero. The exponential LUT approximates exp only.
 
-For each output there is a weight-read state, normalization-load state, 23 divide
+For each output there is a weight-read state, normalization-load state, 12 divide
 states, a rounding state and an output-transfer state. With no stalls, output
-handshakes are **27 clocks apart**. First valid asserts `3*N+26` clocks after
-the final input handshake. The directed test measures these timings. This is
-a serialized correctness baseline, not a one-result-per-clock pipeline.
+handshakes are **16 clocks apart**. First valid asserts `3*N+15` clocks after
+the final input handshake. The directed test measures these timings. Outputs are
+still computed serially.
 
 ## Simulation and vectors
 
@@ -60,8 +60,8 @@ by signed decimal `score_code expected_probability_code` pairs. Regenerate with:
 & '../.venv/Scripts/python.exe' softmax/generate_rtl_vectors.py
 ```
 
-ModelSim passed **578 rows / 25,999 output codes** bit-for-bit in 897,599 main
-testbench clocks. Coverage includes every difference 0..255, every row length
+The ModelSim fixture checks **578 rows / 25,999 output codes** bit-for-bit.
+Coverage includes every difference 0..255, every row length
 1..196, signed extrema, constant/one-hot-like/random rows, 100 real score rows,
 input gaps, output stalls/stability, `out_last`, invalid lengths and reset
 recovery. Directed tests additionally check equal rows of lengths 1/2/49/196,

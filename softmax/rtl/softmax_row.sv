@@ -30,17 +30,27 @@ module softmax_row #(
     wire [7:0] rom_address = difference[7:0];
     // e*127 = (e<<7)-e, unsigned 23-bit exact product.
     wire [22:0] numerator = ({7'b0,weight_value} << 7)-{7'b0,weight_value};
-    // Restoring unsigned division, one numerator bit per cycle, 23 cycles.
-    reg [22:0] dividend;
+    // Radix-4 restoring division. A leading zero pads the numerator to
+    // 24 bits so all 12 iterations consume exactly one bit pair.
+    reg [23:0] dividend;
     reg [24:0] remainder;
-    reg [5:0] divide_step;
-    wire [24:0] trial = {remainder[23:0], dividend[22]};
-    wire subtract = trial >= {1'b0, total};
-    wire [22:0] next_dividend = {dividend[21:0], subtract};
+    reg [3:0] divide_step;
+    reg [25:0] triple_total;
+    // Remainder < total, so the trial is < 4*total. The subtraction
+    // carry chains run in parallel and their high bits identify borrows.
+    wire [25:0] trial = {remainder[23:0], dividend[23:22]};
+    wire [26:0] minus_one = {1'b0, trial} - {3'b0, total};
+    wire [26:0] minus_two = {1'b0, trial} - {2'b0, total, 1'b0};
+    wire [26:0] minus_three = {1'b0, trial} - {1'b0, triple_total};
+    wire [1:0] digit = !minus_two[26] ? {1'b1, !minus_three[26]} :
+                                       {1'b0, !minus_one[26]};
+    wire [24:0] next_remainder = !minus_three[26] ? minus_three[24:0] :
+                                 !minus_two[26]   ? minus_two[24:0] :
+                                 !minus_one[26]   ? minus_one[24:0] : trial[24:0];
     wire [25:0] twice_remainder = {remainder,1'b0};
     wire round_up = (twice_remainder > {2'b0,total}) ||
                     ((twice_remainder == {2'b0,total}) && dividend[0]);
-    wire [23:0] rounded_code = {1'b0,dividend}+{{23{1'b0}},round_up};
+    wire [23:0] rounded_code = dividend+{{23{1'b0}},round_up};
     assign in_ready = !reset && state == RECEIVE &&
                       (count != 0 || (row_length >= 1 && row_length <= 196));
     initial $readmemh(LUT_FILE, rom);
@@ -64,6 +74,7 @@ module softmax_row #(
             dividend <= 0;
             remainder <= 0;
             divide_step <= 0;
+            triple_total <= 0;
             out_valid <= 0;
             out_probability <= 0;
             out_last <= 0;
@@ -98,16 +109,16 @@ module softmax_row #(
                 end
                 WEIGHT_READ: state <= NORMALIZE;
                 NORMALIZE: begin
-                    dividend <= numerator;
+                    dividend <= {1'b0, numerator};
                     remainder <= 0;
                     divide_step <= 0;
+                    triple_total <= {1'b0, total, 1'b0} + {2'b0, total};
                     state <= DIVIDE;
                 end
                 DIVIDE: begin
-                    dividend <= next_dividend;
-                    if (subtract) remainder <= trial - {1'b0, total};
-                    else remainder <= trial;
-                    if (divide_step == 22) state <= ROUND;
+                    dividend <= {dividend[21:0], digit};
+                    remainder <= next_remainder;
+                    if (divide_step == 11) state <= ROUND;
                     else divide_step <= divide_step+1'b1;
                 end
                 ROUND: begin
