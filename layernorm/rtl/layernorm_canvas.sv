@@ -36,17 +36,24 @@ module layernorm_canvas #(
     reg rescale;
 
     // Consecutive bytes contain gamma/beta pairs in channel order.
-    reg [WORD_BYTES*8-1:0] coeff_mem [0:MAX_CHANNELS*2/WORD_BYTES-1];
-    reg [WORD_BYTES*8-1:0] coeff_word;
+    wire [WORD_BYTES*8-1:0] coeff_word;
     wire [10:0] coeff_offset = {channel, 1'b0};
-    integer lane;
-    always @(posedge clk) begin
-        for (lane = 0; lane < WORD_BYTES; lane = lane + 1)
-            if (coeff_wren[lane])
-                coeff_mem[coeff_waddr][lane*8 +: 8] <= coeff_wdata[lane*8 +: 8];
-        if (state == FETCH)
-            coeff_word <= coeff_mem[coeff_offset[10:WORD_SHIFT]];
-    end
+    // Independent byte lanes infer RAM on Quartus versions that map
+    // byte-select writes to a single packed array into flip-flops.
+    genvar lane;
+    generate
+        for (lane = 0; lane < WORD_BYTES; lane = lane + 1) begin : g_coeff_lane
+            reg [7:0] mem [0:MAX_CHANNELS*2/WORD_BYTES-1];
+            reg [7:0] q;
+            always @(posedge clk) begin
+                if (coeff_wren[lane])
+                    mem[coeff_waddr] <= coeff_wdata[lane*8 +: 8];
+                if (state == FETCH)
+                    q <= mem[coeff_offset[10:WORD_SHIFT]];
+            end
+            assign coeff_word[lane*8 +: 8] = q;
+        end
+    endgenerate
 
     // This bound covers the actual bank packing, including a partial last
     // group of channels. The padded pitch comes from the matmul canvas.
