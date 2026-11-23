@@ -7,7 +7,11 @@ onbreak {resume}
 run -all
 if {[examine -radix unsigned sim:/tb_softmax_directed/passed] != 1} {quit -code 1 -force}
 quit -sim
-vsim -onfinish stop -lib softmax/rtl/work tb_softmax_row
+set vector_args {}
+if {[info exists env(SOFTMAX_ROW_VECTORS)]} {
+    lappend vector_args "+ROW_VECTORS=$env(SOFTMAX_ROW_VECTORS)"
+}
+vsim -onfinish stop -lib softmax/rtl/work tb_softmax_row {*}$vector_args
 onbreak {resume}
 run -all
 if {[examine -radix unsigned sim:/tb_softmax_row/passed] != 1} {quit -code 1 -force}

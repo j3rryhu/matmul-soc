@@ -1,4 +1,62 @@
-# Signed INT8 softmax migration
+# Signed INT8 softmax results
+
+## Matched TinyViT comparison
+
+The benchmark uses all 14,112 rows of 49 keys from the three validation
+images at `tiny_vit_21m_224/layers.1.blocks.0.attn`. Each score already
+includes query-key scaling and learned relative-position bias. The INT8
+comparison uses the calibrated input scale and decodes probabilities as
+`code / 127`. The floating-point reference comes from TinyViT's captured
+FP32 probabilities. The FPGA implements the INT8 path.
+
+| Comparison | Relative RMSE | Mean absolute probability error | Maximum absolute probability error |
+| --- | ---: | ---: | ---: |
+| INT8 vs. FP32 on original scores | 6.562% | 0.184 percentage points | 29.338 percentage points |
+| INT8 vs. floating-point softmax on the same INT8 scores | 4.717% | 0.166 percentage points | 0.395 percentage points |
+
+Relative RMSE is `100 × norm(INT8 - reference) / norm(reference)`. The
+first row includes score quantization and clipping. In the worst row,
+three scores clipped at +127. With the original floating-point values
+held fixed, INT8 probabilities change `P @ V` by 2.601% relative RMSE.
+These figures measure numerical error at one attention block.
+
+The native Cortex-A9 C implementation and ModelSim agreed on all
+691,488 probability bytes. The output file from the Cortex-A9 matched
+the SHA-256 of the C vectors checked by ModelSim after newline normalization.
+
+| 49-key row | Latency |
+| --- | ---: |
+| Pure HPS INT8, scalar C | 5.379 µs mean |
+| Pure HPS FP32, scalar C with `expf` | 12.724 µs mean |
+| Fabric RTL at 75 MHz, simulated Avalon polling | 20.480 µs to last result |
+
+The HPS measurements use GCC 4.6.3, `-O3`, one warmup and twenty timed
+passes over the same quantized scores. The RTL test measures 1,536 cycles
+from acceptance of the direct OBUF command to the last probability read
+at the Avalon slave. The first probability read occurs at 240 cycles
+(3.200 µs). The simulated measurement excludes Cortex-A9 and HPS bridge
+latency.
+
+### Reproduce
+
+Prepare the fixture from the repository root, using the existing captures.
+
+```sh
+python softmax/benchmark_compare.py prepare
+gcc -O3 -std=gnu99 -mcpu=cortex-a9 -mfpu=neon softmax/benchmark_hps.c -o benchmark_hps -lm -lrt
+./benchmark_hps softmax/runs/benchmark/scores.txt softmax/example/exp_lut.hex softmax/runs/benchmark/cpu_vectors.txt
+python softmax/benchmark_compare.py report
+SOFTMAX_ROW_VECTORS=softmax/runs/benchmark/cpu_vectors.txt vsim -c -do softmax/rtl/run_modelsim.do
+vsim -c -do softmax/rtl/run_soc_modelsim.do
+```
+
+Build with `-DSOFTMAX_BOARD` and run on the DE1-SoC with the direct-softmax
+bitstream and HPS bridge enabled to measure fabric wall time. The board
+mode stages exact score codes via an identity matmul, verifies the OBUF
+contents, and times the softmax command plus HPS polling. Its timing
+excludes the staging matmul and output comparison.
+
+## Earlier INT8 migration
 
 Work is on the `softmax` branch. The current boundary is signed INT8 input and
 output, zero points zero, matching matmul/GELU/LayerNorm storage conventions.

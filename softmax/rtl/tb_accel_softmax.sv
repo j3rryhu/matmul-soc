@@ -23,6 +23,24 @@ module tb_accel_softmax;
     integer maximum;
     integer word_index, key, lane, result_count;
     integer total, numerator, quotient, remainder, context_sum;
+    integer cycle = 0, launch_cycle, first_result_cycle;
+    bit measure_latency = 0;
+
+    // Count cycles from the accepted direct command to result reads at the
+    // Avalon slave. The bench issues continuous polls while waiting.
+    always @(posedge clk) begin
+        cycle++;
+        if (measure_latency && dut.softmax_start_obuf) begin
+            launch_cycle = cycle;
+            first_result_cycle = 0;
+        end
+        if (measure_latency && dut.softmax_pop && dut.softmax_out_valid) begin
+            if (!first_result_cycle) first_result_cycle = cycle;
+            if (dut.softmax_out_last)
+                $display("LATENCY: %0d keys, %0d cycles to first result, %0d cycles to last result",
+                         KEYS, first_result_cycle-launch_cycle, cycle-launch_cycle);
+        end
+    end
 
     task write_word(input [31:0] address, input [127:0] data,
                     input [15:0] enable = '1);
@@ -185,8 +203,10 @@ module tb_accel_softmax;
         write_word('h1000, 4);
         write_word('h70, 32'h4000_0000);
         start_matmul(4);
+        measure_latency = 1;
         write_word('h130, KEYS << 16);
         check_probabilities(0, 0, 1);
+        measure_latency = 0;
 
         // Feed the probability row back into WBUF for P @ V. One value
         // column is sufficient to check the INT8 contraction boundary.

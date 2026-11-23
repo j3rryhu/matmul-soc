@@ -12,6 +12,8 @@ module tb_softmax_row;
     integer scores[0:195], expected[0:195];
     integer fd, rc, n, i, row=0, received=0, cycles=0, outputs=0;
     integer expected_rows, expected_outputs;
+    integer max_cycles=3000000;
+    string vector_path="softmax/example/rows.txt";
     reg [31:0] rng=32'h15cafe;
     reg stalled=0, held_last;
     reg signed [7:0] held_probability;
@@ -20,7 +22,7 @@ module tb_softmax_row;
     endfunction
     always @(posedge clk) begin
         cycles=cycles+1;
-        if (cycles>3000000) $fatal(1,"Timeout");
+        if (cycles>max_cycles) $fatal(1,"Timeout");
         if (!reset) begin
             if (stalled && (!out_valid || out_probability !== held_probability || out_last !== held_last))
                 $fatal(1,"Output changed while stalled");
@@ -70,10 +72,13 @@ module tb_softmax_row;
         repeat(3) @(negedge clk);
         do_reset();
         @(posedge clk); if(out_valid) $fatal(1,"Stale output after reset");
-        fd=$fopen("softmax/example/rows.txt","r");
-        if(!fd) $fatal(1,"Missing vectors");
+        if ($value$plusargs("ROW_VECTORS=%s", vector_path))
+            $display("Using comparison vectors from %s", vector_path);
+        fd=$fopen(vector_path,"r");
+        if(!fd) $fatal(1,"Missing vectors: %s", vector_path);
         rc=$fscanf(fd,"%d %d",expected_rows,expected_outputs);
         if(rc!=2 || expected_rows<=0 || expected_outputs<=0) $fatal(1,"Invalid header");
+        if (expected_outputs > 25000) max_cycles = expected_outputs*48 + 10000;
         rc=$fscanf(fd,"%d",n);
         while(rc==1) begin
             if(n<1 || n>196) $fatal(1,"Invalid vector length");
