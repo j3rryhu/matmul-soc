@@ -20,18 +20,22 @@ three scores clipped at +127. With the original floating-point values
 held fixed, INT8 probabilities change `P @ V` by 2.601% relative RMSE.
 These figures measure numerical error at one attention block.
 
-The native Cortex-A9 C implementation and ModelSim agreed on all
-691,488 probability bytes. The output file from the Cortex-A9 matched
-the SHA-256 of the C vectors checked by ModelSim after newline normalization.
+The physical DE1-SoC and the native Cortex-A9 C implementation produced
+the same 691,488 probability bytes, with zero mismatches (0%). The board
+test also verified that the scores staged in OBUF were byte-identical to
+the CPU inputs. ModelSim independently matched the same C vectors.
 
 | 49-key row | Latency |
 | --- | ---: |
-| Pure HPS INT8, scalar C | 5.379 µs mean |
-| Pure HPS FP32, scalar C with `expf` | 12.724 µs mean |
+| Pure HPS INT8, scalar C | 5.512 µs mean |
+| Pure HPS FP32, scalar C with `expf` | 13.124 µs mean |
+| Physical fabric at 75 MHz, with HPS MMIO | 31.853 µs mean |
 | Fabric RTL at 75 MHz, simulated Avalon polling | 20.480 µs to last result |
 
-The HPS measurements use GCC 4.6.3, `-O3`, one warmup and twenty timed
-passes over the same quantized scores. The RTL test measures 1,536 cycles
+The board timings come from the same run. At this row length, the
+fabric path took 5.78× as long as the HPS INT8 implementation. The HPS
+measurements use GCC 4.6.3, `-O3`, one warmup and twenty timed passes over
+the same quantized scores. The RTL test measures 1,536 cycles
 from acceptance of the direct OBUF command to the last probability read
 at the Avalon slave. The first probability read occurs at 240 cycles
 (3.200 µs). The simulated measurement excludes Cortex-A9 and HPS bridge
@@ -54,7 +58,14 @@ Build with `-DSOFTMAX_BOARD` and run on the DE1-SoC with the direct-softmax
 bitstream and HPS bridge enabled to measure fabric wall time. The board
 mode stages exact score codes via an identity matmul, verifies the OBUF
 contents, and times the softmax command plus HPS polling. Its timing
-excludes the staging matmul and output comparison.
+excludes the staging matmul, output comparison, and subsequent P×V.
+
+The physical test used the DE1-SoC 32-bit DDR profile. The fitted fabric
+PLL passed all four corners at 75 MHz, with worst setup slack +2.896 ns
+and hold slack +0.114 ns. This SD image loads its stock FPGA image from
+`/etc/init.d/programfpga`. The test loaded the accelerator temporarily
+with USB-Blaster, booted Linux using `init=/bin/bash`, and enabled
+`hps2fpga` through the kernel's FPGA bridge interface.
 
 ## Earlier INT8 migration
 
