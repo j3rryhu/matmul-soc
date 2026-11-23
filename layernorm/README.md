@@ -1,8 +1,10 @@
-# Standalone INT8 LayerNorm
+# INT8 LayerNorm
 
-Branch: `LayerNorm`. Software and standalone RTL; no connection to matmul, GELU,
-softmax, Qsys, or the Quartus project. See `rtl/README.md` for the RTL interface,
-integer arithmetic, simulation commands and implementation limits.
+The `LayerNorm` branch connects the calibrated INT8 core to the matmul
+accelerator's output canvas, including output produced by the optional bias and
+GELU stages. See [SoC integration](rtl/CANVAS.md) for the host interface and
+end-to-end test, and [core RTL](rtl/README.md) for the arithmetic and standalone
+verification.
 
 The interface follows the existing matmul/GELU design:
 
@@ -10,9 +12,8 @@ The interface follows the existing matmul/GELU design:
 - Real values are `code * scale`, as in `activation/gelu_lut.py`.
 - Float-to-code and integer division round nearest, ties to even. Output
   saturates to [-128,127]; raw bytes use two's-complement encoding.
-- Default input/output scales are `1/32`, matching
-  `activation/example/gelu_metadata.json`. Gamma/beta also default to `1/32`.
-  All four scales are explicit configuration values, not learned automatically.
+- The Python reference defaults are `1/32` for all four scales. The deployed
+  RTL uses the calibrated values in `example/int8_config.json`.
 - The matmul `OUTPUT_SCALE` Q0.16 register is its accumulator-to-INT8 multiplier,
   **not** this real-value input scale. The producer's actual output scale must
   agree with LayerNorm's input scale.

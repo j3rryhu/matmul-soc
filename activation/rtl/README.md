@@ -1,6 +1,10 @@
 # Standalone int8 GELU RTL
 
-## Integrated readout versus standalone modules
+## Earlier readout prototype
+
+The current accelerator applies GELU on the final canvas write through
+`output_loader.v`. See [the current SoC datapath](../../layernorm/rtl/CANVAS.md).
+The readout wiring described below applies to the earlier readout integration.
 
 `accel_top.sv` instantiates `matmul_gelu_readout.v` on the output RAM's host
 read path. With DATA_WIDTH=128, its elaborated loop processes 16 int8 lanes

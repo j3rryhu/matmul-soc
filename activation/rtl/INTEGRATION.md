@@ -1,4 +1,8 @@
-# Matmul readout integration
+# Earlier matmul readout integration
+
+This page records the pre-merge readout prototype. The current accelerator
+uses the bias and GELU stages from `main`, followed by the optional
+[LayerNorm canvas pass](../../layernorm/rtl/CANVAS.md).
 
 Row mapping and bias read are shared by all bytes of a wide word. Row mapping
 uses parallel comparisons against constant multiples of the row length in

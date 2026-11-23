@@ -1,6 +1,7 @@
 runs/
 __pycache__/
 rtl/work/
+rtl/canvas_vectors/
 rtl/transcript
 rtl/*.wlf
 quartus/build_current/

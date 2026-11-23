@@ -1,8 +1,8 @@
 # Standalone calibrated INT8 LayerNorm RTL
 
 `layernorm_row.sv` implements the calibrated `layernorm_fixed.py` code contract.
-It has no dependency on the matmul, GELU or softmax RTL and is not instantiated
-by the SoC. No existing Qsys or Quartus project files were edited.
+The core is also instantiated by [the matmul canvas controller](CANVAS.md).
+The standalone benchmark below measures the core in isolation.
 
 ## Interface
 
