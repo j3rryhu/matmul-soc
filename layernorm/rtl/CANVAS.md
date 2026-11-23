@@ -64,4 +64,5 @@ The test performs matmul and bias, runs with and without GELU, checks the
 pre-normalization canvas, then compares the normalized canvas against the
 Python fixed-point reference. Its 17 channels and 17 tokens cross a bank
 group and a 128-bit word boundary. It also checks canvas padding, invalid
-commands, busy and done status, and a read burst held pending during LayerNorm.
+commands, busy and done status, split byte-enable coefficient writes, and a
+read burst held pending during LayerNorm.

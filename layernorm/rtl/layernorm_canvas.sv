@@ -38,22 +38,27 @@ module layernorm_canvas #(
     // Consecutive bytes contain gamma/beta pairs in channel order.
     wire [WORD_BYTES*8-1:0] coeff_word;
     wire [10:0] coeff_offset = {channel, 1'b0};
-    // Independent byte lanes infer RAM on Quartus versions that map
-    // byte-select writes to a single packed array into flip-flops.
-    genvar lane;
-    generate
-        for (lane = 0; lane < WORD_BYTES; lane = lane + 1) begin : g_coeff_lane
-            reg [7:0] mem [0:MAX_CHANNELS*2/WORD_BYTES-1];
-            reg [7:0] q;
-            always @(posedge clk) begin
-                if (coeff_wren[lane])
-                    mem[coeff_waddr] <= coeff_wdata[lane*8 +: 8];
-                if (state == FETCH)
-                    q <= mem[coeff_offset[10:WORD_SHIFT]];
-            end
-            assign coeff_word[lane*8 +: 8] = q;
-        end
-    endgenerate
+    // Match the other accelerator memories' synchronous read latency.
+    // Host writes are blocked while this port is in use.
+    altsyncram #(
+        .operation_mode("DUAL_PORT"), .intended_device_family("Cyclone V"),
+        .width_a(WORD_BYTES*8), .width_b(WORD_BYTES*8),
+        .widthad_a(11-WORD_SHIFT), .widthad_b(11-WORD_SHIFT),
+        .numwords_a(MAX_CHANNELS*2/WORD_BYTES), .numwords_b(MAX_CHANNELS*2/WORD_BYTES),
+        .width_byteena_a(WORD_BYTES), .byte_size(8),
+        .address_reg_b("CLOCK0"), .rdcontrol_reg_b("CLOCK0"),
+        .outdata_reg_b("UNREGISTERED"), .read_during_write_mode_mixed_ports("DONT_CARE"),
+        .ram_block_type("M10K")
+    ) u_coefficients (
+        .clock0(clk), .clock1(1'b1), .aclr0(1'b0), .aclr1(1'b0),
+        .clocken0(1'b1), .clocken1(1'b1), .clocken2(1'b1), .clocken3(1'b1),
+        .address_a(coeff_waddr), .data_a(coeff_wdata),
+        .byteena_a(coeff_wren), .wren_a(|coeff_wren), .rden_a(1'b0),
+        .address_b(coeff_offset[10:WORD_SHIFT]), .rden_b(state == FETCH),
+        .byteena_b(1'b1), .wren_b(1'b0), .data_b({WORD_BYTES*8{1'b0}}),
+        .addressstall_a(1'b0), .addressstall_b(1'b0),
+        .q_a(), .q_b(coeff_word), .eccstatus()
+    );
 
     // This bound covers the actual bank packing, including a partial last
     // group of channels. The padded pitch comes from the matmul canvas.

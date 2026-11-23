@@ -121,7 +121,10 @@ module tb_layernorm_canvas;
         for (int i = 0; i < K; i++) put(32'h1000 + 16*i, weights[i], '1);
         for (int i = 0; i < N*2; i++) put(32'h5000 + 16*i, inputs[i], '1);
         for (int i = 0; i < 5; i++) put(32'h800 + 16*i, bias[i], '1);
-        for (int i = 0; i < 3; i++) put(32'h100 + 16*i, coeff[i], '1);
+        for (int i = 0; i < 3; i++) begin
+            put(32'h100 + 16*i, coeff[i], 16'h00ff);
+            put(32'h100 + 16*i, {coeff[i][127:64], ~coeff[i][63:0]}, 16'hff00);
+        end
         run_pipeline(0);
         run_pipeline(1);
         passed = 1;
