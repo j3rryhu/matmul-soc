@@ -1,7 +1,7 @@
 # DE1-SoC 50 MHz reference into pll_0
 create_clock -name c50 -period 20.000 [get_ports {CLOCK_50}]
 
-# Derive PLL clocks from the compiled netlist (currently pll_0 is 90 MHz).
+# Derive PLL clocks from the compiled netlist (pll_0 is configured for 75 MHz).
 # Recompile after changing the PLL; an older fitted database retains its old rate.
 derive_pll_clocks
 derive_clock_uncertainty

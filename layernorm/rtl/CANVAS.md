@@ -48,8 +48,9 @@ All zero points are zero. See [core RTL](README.md) for the fixed arithmetic.
 
 Regenerate `adder_prototype.qsys` synthesis HDL in Platform Designer using
 the project's Quartus 23.1 version, then build the root Quartus project. The
-component fileset includes both LayerNorm modules and the ROM initialization
-files. Run Quartus from the repository root so the ROM paths resolve.
+accelerator PLL is configured for 75 MHz. The component fileset includes
+both LayerNorm modules and the ROM initialization files. Run Quartus from
+the repository root so the ROM paths resolve.
 
 From the repository root, with Python/NumPy and ModelSim's Intel FPGA
 simulation libraries available:
