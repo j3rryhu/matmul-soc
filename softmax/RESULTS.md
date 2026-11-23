@@ -62,7 +62,9 @@ excludes the staging matmul, output comparison, and subsequent P×V.
 
 The physical test used the DE1-SoC 32-bit DDR profile. The fitted fabric
 PLL passed all four corners at 75 MHz, with worst setup slack +2.896 ns
-and hold slack +0.114 ns. This SD image loads its stock FPGA image from
+and hold slack +0.114 ns. In that fit, the softmax core used 8,800 memory
+bits in 3 M10Ks. The entire SoC used 375 of the device's 397 M10Ks.
+This SD image loads its stock FPGA image from
 `/etc/init.d/programfpga`. The test loaded the accelerator temporarily
 with USB-Blaster, booted Linux using `init=/bin/bash`, and enabled
 `hps2fpga` through the kernel's FPGA bridge interface.
