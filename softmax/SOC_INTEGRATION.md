@@ -83,18 +83,18 @@ output. It also checks a competing Avalon OBUF read and uses the returned
 probabilities for P×V. The SoC PLL targets 75 MHz. Check
 `output_files/adder_prototype.sta.summary` after a fresh fit.
 
-The initial Avalon-only softmax integration completed in Quartus Prime Lite 18.1
+The direct OBUF-to-softmax build completed in Quartus Prime Lite 18.1
 using a scratch copy with the Platform Designer IP version tags adapted
 from 23.1 to 18.1. TimeQuest reported the fabric PLL at 75.0 MHz
 (13.333 ns), with zero total negative slack in all four corners.
 
 | Fabric PLL check | Worst slack across four corners |
 | --- | ---: |
-| Setup | +3.260 ns |
-| Hold | +0.107 ns |
-| Recovery | +5.344 ns |
-| Removal | +0.311 ns |
-| Minimum pulse width | +5.405 ns |
+| Setup | +3.247 ns |
+| Hold | +0.077 ns |
+| Recovery | +3.830 ns |
+| Removal | +0.261 ns |
+| Minimum pulse width | +5.404 ns |
 
 TimeQuest reported zero unconstrained clocks. It also listed external
 HPS and JTAG I/O ports without delay constraints. The timing result covers
