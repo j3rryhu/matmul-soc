@@ -1,8 +1,42 @@
 # INT8 LayerNorm results
 
-See the [radix-4 divider results](#radix-4-divider) for the current RTL and
+See [shared coefficient memory](#shared-coefficient-memory) for the current RTL and
 the [integrated canvas benchmark](#integrated-canvas-and-cortex-a9-comparison)
 for the earlier controller fit and HPS comparison.
+
+## Shared coefficient memory
+
+The canvas controller reads gamma and beta from its host-loaded RAM in the
+core's existing read stage. The integrated core buffers activations only
+and no longer stores a second copy of the coefficients. The canvas fit uses
+**6 M10Ks (22,016 bits)**, down from 8 M10Ks (31,232 bits). ALMs went from
+872 to 874. The fit uses 10 DSP blocks and 634 registers. The canvas fit
+reports a 69.20 MHz slow-corner Fmax and misses 75 MHz setup by 1.118 ns.
+
+ModelSim still measured **4,636 cycles** for a 192-channel token. This
+projects to **66.99 µs** at the standalone fit's 69.20 MHz Fmax, before
+bridge traffic and host polling. Full SoC timing and physical fabric
+latency for this revision remain unmeasured. The
+matmul-to-LayerNorm tests passed with GELU enabled and bypassed. The
+standalone interface still accepts gamma and beta with each input, and its
+golden regression matched all 200,296 bytes. The standalone fit uses 4 M10Ks
+and passes 90 MHz with +0.475 ns worst setup slack.
+
+## Skip leading zero quotient bits
+
+The normalized quotient magnitude fits in 20 bits for all supported channel
+counts. Seeding the divider remainder with the upper numerator bits reduces
+the radix-4 divide from 21 to 10 cycles per channel and the unstalled output
+interval from 32 to 21 cycles. Rounding uses the exact final remainder.
+
+ModelSim measured **4,636 cycles** from the accepted canvas command to the
+last writeback for a 192-channel token, down from 6,748. The golden regression
+matched all 200,296 INT8 outputs, and the integrated test passed with GELU
+enabled and bypassed. The standalone core fit used 537 ALMs and 4 M10Ks
+(22,016 bits), passing 90 MHz with +0.027 ns worst setup slack.
+The separate canvas fit used 872 ALMs and 8 M10Ks. It missed 75 MHz setup
+by 1.171 ns and reported 68.95 MHz slow-corner Fmax. At that reported Fmax,
+4,636 cycles project to 67.24 µs before bridge traffic and host polling.
 
 ## Radix-4 divider
 

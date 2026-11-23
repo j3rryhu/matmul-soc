@@ -4,6 +4,13 @@
 The core is also instantiated by [the matmul canvas controller](CANVAS.md).
 The standalone benchmark below measures the core in isolation.
 
+With the default `EXTERNAL_COEFF=0`, gamma and beta arrive with each input
+channel and share a 16-bit buffer. The canvas selects `EXTERNAL_COEFF=1`,
+which generates no affine buffer inside the core. It reads one pair from the
+host-loaded coefficient RAM when the core asserts `coeff_rd_en` with
+`coeff_rd_index`, and returns the pair on `in_gamma` and `in_beta` in time
+for the following rising edge.
+
 ## Interface
 
 | Signal | Meaning |
@@ -64,7 +71,7 @@ floor, exactly as in software. All saturation occurs after the affine stage.
 Important widths include signed 18-bit S, unsigned 24-bit Q, unsigned 33-bit D,
 49-bit square-root argument (padded to 50 bits), 25-bit denominator and signed
 41-bit normalization numerator. A 25-step digit-by-digit square root and a
-21-step radix-4 restoring divider avoid combinational `/` or `$sqrt`. Normalized results
+10-step radix-4 restoring divider avoid combinational `/` or `$sqrt`. Normalized results
 use signed 21-bit storage, the gamma product signed 29-bit storage, and affine
 arithmetic signed 46-bit storage; these cover the software bounds for this
 fixed config. Coefficients are captured into channel registers during the
@@ -145,13 +152,14 @@ relocation error; the simulation itself ran successfully.
 
 ## Latency and current limits
 
-With no stalls, `out_valid` first asserts **58 clocks** after the final input
-handshake. Subsequent outputs can transfer every **32 clocks**. The 25-step
-square root is shared across the row. A radix-4 restoring divider consumes two
-bits per cycle from the zero-padded magnitude in **21 cycles per channel**.
+With no stalls, `out_valid` first asserts **47 clocks** after the final input
+handshake. Subsequent outputs can transfer every **21 clocks**. The 25-step
+square root is shared across the row. The quotient magnitude is less than
+`2^20`, so the radix-4 divider loads the upper numerator bits as its initial
+remainder. It consumes the remaining 20 bits in **10 cycles per channel**.
 Three parallel subtractions select the quotient digit and next remainder.
-The previous one-bit divider used 41 cycles, with 78 clocks to first valid and
-52 clocks between outputs. The controller still processes one channel at a time.
+The previous radix-4 implementation used 21 divide cycles, with 58 clocks to
+first valid and 32 clocks between outputs. The core computes channels serially.
 
 ModelSim bit-exact verification establishes the selected integer behavior only.
 The original one-bit-divider standalone fit used 510 ALMs, 4 M10Ks and

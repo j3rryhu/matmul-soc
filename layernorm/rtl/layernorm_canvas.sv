@@ -35,9 +35,12 @@ module layernorm_canvas #(
     reg [ADDR_WIDTH-1:0] token, byte_addr;
     reg rescale;
 
-    // Consecutive bytes contain gamma/beta pairs in channel order.
+    // Read the host's coefficient RAM directly while emitting each row.
     wire [WORD_BYTES*8-1:0] coeff_word;
-    wire [10:0] coeff_offset = {channel, 1'b0};
+    wire coeff_rd_en;
+    wire [9:0] coeff_rd_index;
+    wire [10:0] coeff_offset = {coeff_rd_index, 1'b0};
+    wire [15:0] coeff_pair = coeff_word[coeff_offset[WORD_SHIFT-1:0]*8 +: 16];
     // Match the other accelerator memories' synchronous read latency.
     // Host writes are blocked while this port is in use.
     altsyncram #(
@@ -54,7 +57,7 @@ module layernorm_canvas #(
         .clocken0(1'b1), .clocken1(1'b1), .clocken2(1'b1), .clocken3(1'b1),
         .address_a(coeff_waddr), .data_a(coeff_wdata),
         .byteena_a(coeff_wren), .wren_a(|coeff_wren), .rden_a(1'b0),
-        .address_b(coeff_offset[10:WORD_SHIFT]), .rden_b(state == FETCH),
+        .address_b(coeff_offset[10:WORD_SHIFT]), .rden_b(coeff_rd_en),
         .byteena_b(1'b1), .wren_b(1'b0), .data_b({WORD_BYTES*8{1'b0}}),
         .addressstall_a(1'b0), .addressstall_b(1'b0),
         .q_a(), .q_b(coeff_word), .eccstatus()
@@ -75,7 +78,6 @@ module layernorm_canvas #(
     assign wr_addr = byte_addr;
 
     reg signed [7:0] input_code;
-    wire [15:0] coeff_pair = coeff_word[coeff_offset[WORD_SHIFT-1:0]*8 +: 16];
     // Round q*0.03125/0.14372939763106699 to the nearest INT8 code.
     // Q0.16 factor 14249 gives the same rounded result for all 256 codes.
     wire [7:0] magnitude = input_code[7] ? -input_code : input_code;
@@ -86,14 +88,15 @@ module layernorm_canvas #(
     wire out_ready = state == WRITE;
     assign wr_en = out_valid && out_ready;
 
-    layernorm_row #(.EPS_FILE(EPS_FILE)) u_row (
+    layernorm_row #(.EPS_FILE(EPS_FILE), .EXTERNAL_COEFF(1)) u_row (
         .clk(clk), .reset(!reset_n),
         .in_valid(state == FEED), .in_ready(in_ready),
         .in_data(rescale ? scaled : input_code),
         .in_gamma(coeff_pair[7:0]), .in_beta(coeff_pair[15:8]),
         .row_length(length),
         .out_valid(out_valid), .out_ready(out_ready),
-        .out_data(wr_data), .out_last(out_last)
+        .out_data(wr_data), .out_last(out_last),
+        .coeff_rd_en(coeff_rd_en), .coeff_rd_index(coeff_rd_index)
     );
 
     always @(posedge clk) begin

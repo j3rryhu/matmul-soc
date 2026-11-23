@@ -3,7 +3,8 @@
 // Paired x/gamma/beta are signed INT8; output is signed INT8, ties-to-even.
 // Numeric contract and scale provenance: layernorm/example/manifest.json.
 module layernorm_row #(
-    parameter EPS_FILE = "layernorm/example/epsilon.hex"
+    parameter EPS_FILE = "layernorm/example/epsilon.hex",
+    parameter EXTERNAL_COEFF = 0
 ) (
     input wire clk, reset,
     input wire in_valid,
@@ -13,7 +14,11 @@ module layernorm_row #(
     output reg out_valid,
     input wire out_ready,
     output reg signed [7:0] out_data,
-    output reg out_last
+    output reg out_last,
+    // In external mode, read gamma/beta here and return them on
+    // in_gamma/in_beta one clock later. The standalone mode buffers inputs.
+    output wire coeff_rd_en,
+    output wire [9:0] coeff_rd_index
 );
     localparam RECEIVE=0, VARIANCE=1, ROOT_INIT=2, ROOT_STEP=3,
                READ=4, WAIT_READ=5, NORM_INIT=6, DIVIDE=7,
@@ -21,10 +26,9 @@ module layernorm_row #(
                SCALE_MULT=13, SCALE_JOIN=14, QUANT_MAG=15;
     reg [3:0] state;
     reg signed [7:0] data_mem [0:575];
-    reg signed [7:0] gamma_mem [0:575];
-    reg signed [7:0] beta_mem [0:575];
     reg [7:0] epsilon_rom [0:1023];
-    reg signed [7:0] data_value, gamma_value, beta_value;
+    reg signed [7:0] data_value;
+    wire signed [7:0] gamma_value, beta_value;
     // Separate M10K read timing from coefficient multiplication. Capture during
     // the existing read-wait slot, then hold throughout normalization/division.
     reg signed [7:0] gamma_channel, beta_channel;
@@ -48,20 +52,21 @@ module layernorm_row #(
     wire root_bit = root_trial >= root_subtrahend;
     wire [24:0] next_root = {root_result[23:0],root_bit};
 
-    // (N*q-S) has 19 signed bits; shifting by R+K=22 requires 41 bits.
+    // (N*q-S) has 19 signed bits. The magnitude of the scaled numerator
+    // is |N*q-S| << 22, so its bottom 20 bits are all zero.
     wire signed [18:0] centered = $signed({1'b0,length})*$signed(data_value)-$signed(total);
-    wire signed [40:0] normalize_numerator = $signed({{22{centered[18]}},centered}) <<< 22;
-    wire [40:0] normalize_magnitude = normalize_numerator[40] ? -normalize_numerator : normalize_numerator;
-    // Radix-4 restoring division. Pad the magnitude to 42 bits so each
-    // of the 21 iterations consumes one bit pair. Round separately.
-    reg [41:0] dividend;
+    wire [18:0] centered_magnitude = centered[18] ? -centered : centered;
+    // The quotient magnitude is < 2^20 (see bound below), so shifting the
+    // numerator right by 20 gives a prefix strictly below the denominator.
+    // Load it as the remainder, then consume ten zero bit pairs.
+    reg [19:0] quotient;
     reg [25:0] remainder;
-    reg [4:0] divide_step;
+    reg [3:0] divide_step;
     reg negative;
     reg [26:0] triple_denominator;
     // Remainder < denominator, so each trial is < 4*denominator.
     // Compare and subtract all three candidates in parallel using borrow bits.
-    wire [26:0] divide_trial = {remainder[24:0], dividend[41:40]};
+    wire [26:0] divide_trial = {remainder[24:0], 2'b00};
     wire [27:0] minus_one = {1'b0, divide_trial} - {3'b0, denominator};
     wire [27:0] minus_two = {1'b0, divide_trial} - {2'b0, denominator, 1'b0};
     wire [27:0] minus_three = {1'b0, divide_trial} - {1'b0, triple_denominator};
@@ -72,8 +77,8 @@ module layernorm_row #(
                                  !minus_one[27]   ? minus_one[25:0] : divide_trial[25:0];
     wire [26:0] twice_remainder = {remainder,1'b0};
     wire round_normalize = (twice_remainder > {2'b0,denominator}) ||
-                         ((twice_remainder == {2'b0,denominator}) && dividend[0]);
-    wire [41:0] rounded_magnitude = dividend + {{41{1'b0}},round_normalize};
+                         ((twice_remainder == {2'b0,denominator}) && quotient[0]);
+    wire [20:0] rounded_magnitude = {1'b0, quotient} + {{20{1'b0}},round_normalize};
     // For N<=576, |z| <= 2*(floor(sqrt(575*2^28))+1) < 2^20,
     // including floor-root error and normalization rounding. Signed 21 bits
     // therefore preserve the exact integer result; 21x8 needs 29 signed bits.
@@ -100,14 +105,29 @@ module layernorm_row #(
 
     assign in_ready = !reset && state == RECEIVE &&
                       (count != 0 || (row_length >= 1 && row_length <= 576));
+    assign coeff_rd_en = EXTERNAL_COEFF && !reset && state == READ;
+    assign coeff_rd_index = EXTERNAL_COEFF ? index : 10'd0;
     initial $readmemh(EPS_FILE, epsilon_rom);
     // No memory resets; explicit states allow registered/block-memory reads.
     always @(posedge clk) begin
         data_value <= data_mem[index];
-        gamma_value <= gamma_mem[index];
-        beta_value <= beta_mem[index];
         epsilon_value <= epsilon_rom[length];
     end
+    generate
+        if (EXTERNAL_COEFF) begin : g_external_coeff
+            assign gamma_value = in_gamma;
+            assign beta_value = in_beta;
+        end else begin : g_buffer_coeff
+            reg [15:0] affine_mem [0:575];
+            reg [15:0] affine_value;
+            always @(posedge clk) begin
+                if (in_valid && in_ready)
+                    affine_mem[count] <= {in_beta, in_gamma};
+                affine_value <= affine_mem[index];
+            end
+            assign {beta_value, gamma_value} = affine_value;
+        end
+    endgenerate
 
     always @(posedge clk) begin
         if (reset) begin
@@ -116,7 +136,7 @@ module layernorm_row #(
             total <= 0; squares <= 0; variance_numerator <= 0;
             radicand <= 0; root_remainder <= 0; root_result <= 0;
             denominator <= 0; root_step <= 0;
-            dividend <= 0; remainder <= 0; divide_step <= 0; negative <= 0;
+            quotient <= 0; remainder <= 0; divide_step <= 0; negative <= 0;
             triple_denominator <= 0;
             normalized <= 0; norm_gamma <= 0; affine <= 0;
             gamma_channel <= 0; beta_channel <= 0;
@@ -127,8 +147,6 @@ module layernorm_row #(
             case (state)
                 RECEIVE: if (in_valid && in_ready) begin
                     data_mem[count] <= in_data;
-                    gamma_mem[count] <= in_gamma;
-                    beta_mem[count] <= in_beta;
                     if (count == 0) begin
                         length <= row_length;
                         total <= {{10{in_data[7]}},in_data};
@@ -171,14 +189,15 @@ module layernorm_row #(
                     state <= NORM_INIT;
                 end
                 NORM_INIT: begin
-                    dividend <= {1'b0, normalize_magnitude}; remainder <= 0; divide_step <= 0;
-                    negative <= normalize_numerator[40];
+                    quotient <= 0; remainder <= {5'b0, centered_magnitude, 2'b00};
+                    divide_step <= 0;
+                    negative <= centered[18];
                     state <= DIVIDE;
                 end
                 DIVIDE: begin
-                    dividend <= {dividend[39:0], digit};
+                    quotient <= {quotient[17:0], digit};
                     remainder <= next_remainder;
-                    if (divide_step == 20) state <= NORM_ROUND;
+                    if (divide_step == 9) state <= NORM_ROUND;
                     else divide_step <= divide_step+1'b1;
                 end
                 NORM_ROUND: begin

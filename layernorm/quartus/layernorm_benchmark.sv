@@ -27,6 +27,7 @@ module layernorm_benchmark (
         .clk(clk), .reset(reset_r), .in_valid(in_valid_r), .in_ready(core_in_ready),
         .in_data(data_r), .in_gamma(gamma_r), .in_beta(beta_r), .row_length(length_r),
         .out_valid(core_out_valid), .out_ready(out_ready_r),
-        .out_data(core_out_data), .out_last(core_out_last)
+        .out_data(core_out_data), .out_last(core_out_last),
+        .coeff_rd_en(), .coeff_rd_index()
     );
 endmodule
