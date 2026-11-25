@@ -21,6 +21,22 @@ The isolated canvas fit passed 75 MHz with +2.307 ns worst setup slack
 and +0.138 ns worst hold slack. It used 949 ALMs, 1,054 registers,
 six M10Ks (22,016 bits) and 13 DSPs.
 
+The physical DE1-SoC fit also passed 75 MHz across all four corners, with
+worst fabric-clock setup and hold slack of +1.610 ns and +0.119 ns.
+The full SoC used 26,982 ALMs, 378 M10Ks and 15 DSPs. The board timings
+used the same 24 captured 192-channel tokens on the HPS and fabric:
+
+| Path | Time per token |
+| --- | ---: |
+| HPS INT8, VFP reciprocal with exact integer correction | 40.487 µs median |
+| HPS FP32 | 7.751 µs median |
+| Fabric INT8, with HPS launch and status polling | 6.362 µs mean |
+
+The fabric benchmark ran 12 batches of 24 tokens and matched all 55,296
+output bytes. It times the command through in-place writeback and host
+completion polling. Input and coefficient staging and verification readback
+are outside the timing interval.
+
 ## Shared reciprocal
 
 The row core registers the input and square before accumulation, and
