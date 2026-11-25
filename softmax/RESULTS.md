@@ -25,16 +25,15 @@ keys gave these medians of the per-trial means:
 
 | Path | Time per row |
 | --- | ---: |
-| HPS INT8 | 5.462 µs |
-| HPS FP32 | 12.727 µs |
-| Fabric INT8, including launch, status polling and packed readback | 5.093 µs |
+| HPS INT8 | 5.404 µs |
+| HPS FP32 | 12.715 µs |
+| Fabric INT8, including launch, status polling and packed readback | 5.088 µs |
 
 Fabric beat HPS INT8 in all five trials and matched all 23,520 output bytes.
 The benchmark stages scores in OBUF before timing and ends after probability
-readback. The fitted SoC used 26,906 ALMs, 377 M10Ks and 2 DSPs, and the 75 MHz
-fabric clock met timing across all four corners. This board build predates
-the byte-enable guard for the packed-mode bit. The benchmark uses a 32-bit
-command write, which enables that byte lane in either build.
+readback. The fitted SoC used 26,866 ALMs, 377 M10Ks and 2 DSPs. The 75 MHz
+fabric clock met timing across all four corners. The board test used the
+committed RTL, including the byte-enable guard for the packed-mode bit.
 
 ## Overlapped RAM reads
 
