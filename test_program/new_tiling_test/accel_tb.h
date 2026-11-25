@@ -60,7 +60,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#ifdef __ARM_NEON
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
 #include <arm_neon.h>
 #define HAVE_NEON 1
 #else

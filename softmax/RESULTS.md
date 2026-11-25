@@ -8,8 +8,7 @@ them in bus-width words. Legacy per-byte readback remains available.
 
 For 49 keys, ModelSim measured **318 cycles** to the last legacy result
 and **228 cycles** to the last packed Avalon word. The packed path is
-**3.04 µs at 75 MHz**, versus the original 5.512 µs HPS INT8 kernel benchmark.
-The fabric projection excludes the real HPS bridge and software overhead.
+**3.04 µs at 75 MHz** before the physical HPS bridge and software overhead.
 The same core matched all 691,488 INT8 bytes from the saved HPS run.
 
 The standalone core fit used 432 ALMs, 328 registers, one M10K and zero
@@ -18,7 +17,24 @@ the packed result collector in the SoC.
 
 For the board benchmark, build `benchmark_hps.c` with both
 `-DSOFTMAX_BOARD` and `-DSOFTMAX_PACKED_BOARD`. The host polls completion
-and reads the packed probabilities in aligned 128-bit chunks.
+and reads the packed probabilities in aligned 128-bit chunks when NEON is
+available. The DE1-SoC GCC 4.6.3 toolchain defines `__ARM_NEON__`.
+
+On the physical DE1-SoC at 75 MHz, five trials over 96 captured rows of 49
+keys gave these medians of the per-trial means:
+
+| Path | Time per row |
+| --- | ---: |
+| HPS INT8 | 5.462 µs |
+| HPS FP32 | 12.727 µs |
+| Fabric INT8, including launch, status polling and packed readback | 5.093 µs |
+
+Fabric beat HPS INT8 in all five trials and matched all 23,520 output bytes.
+The benchmark stages scores in OBUF before timing and ends after probability
+readback. The fitted SoC used 26,906 ALMs, 377 M10Ks and 2 DSPs, and the 75 MHz
+fabric clock met timing across all four corners. This board build predates
+the byte-enable guard for the packed-mode bit. The benchmark uses a 32-bit
+command write, which enables that byte lane in either build.
 
 ## Overlapped RAM reads
 
