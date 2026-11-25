@@ -24,6 +24,7 @@ module tb_accel_softmax;
     integer word_index, key, lane, result_count;
     integer total, numerator, quotient, remainder, context_sum;
     integer cycle = 0, launch_cycle, first_result_cycle;
+    integer packed_launch_cycle;
     bit measure_latency = 0;
 
     // Count cycles from the accepted direct command to result reads at the
@@ -204,9 +205,31 @@ module tb_accel_softmax;
         write_word('h70, 32'h4000_0000);
         start_matmul(4);
         measure_latency = 1;
-        write_word('h130, KEYS << 16);
+        write_word('h130, (1<<24) | KEYS<<16, 16'h0007);
         check_probabilities(0, 0, 1);
         measure_latency = 0;
+
+        // Repeat the same row with packed output, including the partial word.
+        write_word('h130, (1<<24) | KEYS<<16);
+        packed_launch_cycle = cycle;
+        do begin
+            read_word('h120, word_data);
+            if (word_data[12]) $fatal(1, "Packed OBUF launch rejected");
+        end while (!word_data[13]);
+        start_read('h200, 4);
+        for (word_index = 0; word_index < 4; word_index++) begin
+            @(negedge clk);
+            avs_read = 0;
+            while (!avs_readdatavalid) @(negedge clk);
+            for (lane = 0; lane < 16; lane++) begin
+                key = word_index*16+lane;
+                if (avs_readdata[lane*8 +: 8] !== (key < KEYS ? probabilities[key] : 8'd0))
+                    $fatal(1, "Packed data or padding mismatch at byte %0d", key);
+            end
+        end
+        $display("PACKED LATENCY: %0d keys, %0d cycles to final Avalon word", KEYS, cycle-packed_launch_cycle);
+        read_word('h240, word_data);
+        if (word_data !== 0) $fatal(1, "Packed data leaked past the completed row");
 
         // Feed the probability row back into WBUF for P @ V. One value
         // column is sufficient to check the INT8 contraction boundary.

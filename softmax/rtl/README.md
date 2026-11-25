@@ -37,10 +37,11 @@ digit and next remainder. A separate state compares twice
 the remainder with the sum and applies ties-to-even rounding. Output is bounded
 by 127; its sign bit is zero. The exponential LUT approximates exp only.
 
-The first output starts with a weight read. Each subsequent weight is
-prefetched on the preceding output handshake. With no stalls, output
-handshakes are **7 clocks apart**. First valid asserts `2*N+8` clocks after
-the final input handshake. The directed test measures these timings.
+An exponential read feeds the normalization pipeline each clock. Four
+registered stages handle the radix-4 digits, then a final stage rounds.
+With no stalls, outputs transfer **every clock**. First valid asserts
+`2*N+8` clocks after the final input handshake. Backpressure holds the
+pipeline and its RAM read together.
 
 ## Simulation and vectors
 

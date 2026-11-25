@@ -63,6 +63,7 @@ module accel_top #(
     localparam logic [31:0] SOFTMAX_SCORE  = 32'h0110;
     localparam logic [31:0] SOFTMAX_RESULT = 32'h0120;
     localparam logic [31:0] SOFTMAX_OBUF   = 32'h0130;
+    localparam logic [31:0] SOFTMAX_PACKED = 32'h0200;
     localparam logic [31:0] BBUF_BASE = 32'h0000_0800, BBUF_SIZE = 32'h0000_0400; // bias_buffer (256 x int32), 10-bit addr, write-only
     localparam logic [31:0] WBUF_BASE = 32'h0000_1000, WBUF_SIZE = 32'h0000_4000; // weight_buffer (banked), 14-bit addr
     localparam logic [31:0] IBUF_BASE = 32'h0000_5000, IBUF_SIZE = 32'h0000_4000; // input_buffer (banked),  14-bit addr
@@ -145,6 +146,7 @@ module accel_top #(
     logic sel_ctrl_r;
     logic sel_obuf_r;
     logic sel_softmax_r;
+    logic sel_softmax_packed_r;
     logic softmax_first_beat;
     logic rd_burst_on;
 
@@ -159,7 +161,11 @@ module accel_top #(
     logic obuf_pipe_busy;    // OBUF beats still in the remap/RAM pipeline
     wire [AVS_DATA_WIDTH-1:0] read_data;   // the beat's data (read mux, further down)
     wire softmax_read_valid = rd_burst_on && sel_softmax_r;
-    assign read_valid = rf_data_valid || obuf_data_valid || softmax_read_valid;
+    wire softmax_packed_read_valid = rd_burst_on && sel_softmax_packed_r;
+    wire sel_softmax_packed = avs_address >= SOFTMAX_PACKED &&
+                              avs_address < SOFTMAX_PACKED + 256;
+    assign read_valid = rf_data_valid || obuf_data_valid || softmax_read_valid ||
+                        softmax_packed_read_valid;
     // One read in flight at a time (maximumPendingReadTransactions = 1): a
     // new read stalls a cycle before it is accepted, and burst_busy holds
     // off every command for the rest of a multi-beat burst. An output-buffer
@@ -192,6 +198,7 @@ module accel_top #(
             sel_ctrl_r <= 0;
             sel_obuf_r <= 0;
             sel_softmax_r <= 0;
+            sel_softmax_packed_r <= 0;
             softmax_first_beat <= 0;
             rd_burst_on <= 0;
             avs_readdatavalid <= 0;
@@ -213,6 +220,7 @@ module accel_top #(
                 sel_ctrl_r <= sel_ctrl;
                 sel_obuf_r <= sel_obuf;
                 sel_softmax_r <= avs_address == SOFTMAX_RESULT;
+                sel_softmax_packed_r <= sel_softmax_packed;
                 softmax_first_beat <= avs_address == SOFTMAX_RESULT;
                 rd_burst_on <= 1;
             end
@@ -229,6 +237,7 @@ module accel_top #(
                     sel_ctrl_r <= 0;
                     sel_obuf_r <= 0;
                     sel_softmax_r <= 0;
+                    sel_softmax_packed_r <= 0;
                     rd_burst_on <= 0;
                     accepted <= 0;
                     burst_busy <= 0;
@@ -710,12 +719,21 @@ module accel_top #(
     logic [AVS_DATA_WIDTH-1:0] softmax_obuf_data;
     logic [WORD_SHIFT-1:0] softmax_byte_lane;
     logic [7:0] softmax_remaining;
+    logic softmax_pack_mode, softmax_packed_done;
+    logic [7:0] softmax_pack_index;
+    logic [AVS_DATA_WIDTH-1:0] softmax_pack_word, softmax_pack_next;
+    logic [AVS_DATA_WIDTH-1:0] softmax_packed_q;
+    localparam int PACK_ADDR_WIDTH = 8 - WORD_SHIFT;
+    logic [PACK_ADDR_WIDTH-1:0] softmax_last_word;
+    logic softmax_packed_q_valid;
+    (* ramstyle = "no_rw_check" *)
+    logic [AVS_DATA_WIDTH-1:0] softmax_packed_mem [0:(1<<PACK_ADDR_WIDTH)-1];
     wire softmax_in_ready, softmax_out_valid, softmax_out_last;
     wire signed [7:0] softmax_probability;
     wire softmax_pop = softmax_read_valid && softmax_first_beat;
-    wire [12:0] softmax_result = {softmax_obuf_error, softmax_fetch_busy,
+    wire [13:0] softmax_result = {softmax_packed_done, softmax_obuf_error, softmax_fetch_busy,
                                   softmax_in_ready && !softmax_fetch_busy, softmax_out_last,
-                                  softmax_out_valid, softmax_probability};
+                                  softmax_out_valid && !softmax_pack_mode, softmax_probability};
     wire softmax_length_write = avs_write_accepted && avs_byteenable[0] &&
                                 avs_address == SOFTMAX_LENGTH;
     wire softmax_cancel = softmax_length_write && avs_writedata[7:0] == 0;
@@ -725,12 +743,51 @@ module accel_top #(
     wire [16:0] softmax_obuf_end = {1'b0, avs_writedata[15:0]} +
                                    {9'b0, softmax_obuf_length};
     wire softmax_start_obuf = softmax_obuf_command && !softmax_fetch_busy &&
+                             (!softmax_pack_mode || softmax_packed_done) &&
                              matmul_complete && !matmul_busy && !matmul_start && !out_raw &&
                              avs_writedata[WORD_SHIFT-1:0] == 0 &&
                              softmax_obuf_length != 0 && softmax_obuf_length <= 196 &&
                              softmax_obuf_end <= OBUF_SIZE;
     assign softmax_fetch_busy = softmax_fetch_state != SM_IDLE;
     assign softmax_fetch_word = softmax_fetch_state == SM_FETCH;
+
+    // Optional packed output: drain the core at one byte per clock, then
+    // expose completed words to Avalon without one status read per result.
+    wire softmax_pack_byte = softmax_pack_mode && softmax_out_valid &&
+                             !softmax_packed_done && !softmax_cancel;
+    wire [AVS_ADDR_WIDTH-1:0] packed_read_addr = rd_burst_on ? addr_buf : avs_address;
+    always_comb begin
+        softmax_pack_next = softmax_pack_word;
+        softmax_pack_next[softmax_pack_index[WORD_SHIFT-1:0]*8 +: 8] = softmax_probability;
+    end
+    always_ff @(posedge clk) begin
+        softmax_packed_q <= softmax_packed_mem[packed_read_addr[7:WORD_SHIFT]];
+        softmax_packed_q_valid <= packed_read_addr >= SOFTMAX_PACKED &&
+                                 packed_read_addr < SOFTMAX_PACKED + 256 &&
+                                 packed_read_addr[7:WORD_SHIFT] <= softmax_last_word;
+        if (softmax_pack_byte &&
+            (softmax_out_last || (&softmax_pack_index[WORD_SHIFT-1:0])))
+            softmax_packed_mem[softmax_pack_index[7:WORD_SHIFT]] <= softmax_pack_next;
+    end
+    always_ff @(posedge clk) begin
+        if (!reset_n || softmax_cancel || softmax_start_obuf) begin
+            softmax_pack_mode <= reset_n && softmax_start_obuf &&
+                                 avs_byteenable[3] && avs_writedata[24];
+            softmax_packed_done <= 0;
+            softmax_pack_index <= 0;
+            softmax_last_word <= 0;
+            softmax_pack_word <= '0;
+        end else if (softmax_pack_byte) begin
+            softmax_pack_index <= softmax_pack_index + 1'b1;
+            softmax_packed_done <= softmax_out_last;
+            if (softmax_out_last)
+                softmax_last_word <= softmax_pack_index[7:WORD_SHIFT];
+            if (softmax_out_last || (&softmax_pack_index[WORD_SHIFT-1:0]))
+                softmax_pack_word <= '0;
+            else
+                softmax_pack_word <= softmax_pack_next;
+        end
+    end
 
     always_ff @(posedge clk) begin
         if (!reset_n) begin
@@ -788,7 +845,7 @@ module accel_top #(
         end
     end
 
-    wire softmax_mmio_score = !softmax_fetch_busy && avs_write_accepted &&
+    wire softmax_mmio_score = !softmax_pack_mode && !softmax_fetch_busy && avs_write_accepted &&
                               avs_byteenable[0] && avs_address == SOFTMAX_SCORE;
     softmax_row u_softmax (
         .clk(clk), .reset(!reset_n || softmax_abort),
@@ -796,7 +853,8 @@ module accel_top #(
         .in_ready(softmax_in_ready),
         .in_score(softmax_fetch_busy ? softmax_obuf_data[7:0] : avs_writedata[7:0]),
         .row_length(softmax_length), .out_valid(softmax_out_valid),
-        .out_ready(softmax_pop), .out_probability(softmax_probability),
+        .out_ready(softmax_pack_mode ? !softmax_packed_done : softmax_pop),
+        .out_probability(softmax_probability),
         .out_last(softmax_out_last)
     );
 
@@ -804,7 +862,9 @@ module accel_top #(
     // while obuf_pipe_busy, and an OBUF beat is only ever valid then.
     assign read_data = obuf_data_valid ? obuf_ext_q :
                        rf_data_valid   ? ctrl_rdata :
-                       softmax_pop     ? {{(AVS_DATA_WIDTH-13){1'b0}}, softmax_result} : '0;
+                       softmax_pop     ? {{(AVS_DATA_WIDTH-14){1'b0}}, softmax_result} :
+                       (softmax_packed_read_valid && softmax_packed_done &&
+                        softmax_packed_q_valid) ? softmax_packed_q : '0;
 
     // ============================================================
     // input_dispatch - streams input_buffer into the array's left edge,

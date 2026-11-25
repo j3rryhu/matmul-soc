@@ -104,8 +104,15 @@ static void measure_board(const int8_t *scores, const int8_t *expected,
 
         uint64_t start = benchmark_ns();
         for (int i = 0; i < count; ++i) {
+#ifdef SOFTMAX_PACKED_BOARD
+            int status = softmax_obuf_wait_packed(accel, (size_t)i * row_pitch(length),
+                                                  length, 1000000);
+            if (!status)
+                read_bytes(SOFTMAX_PACKED_OFFSET, (uint8_t *)(probabilities + i * length), length);
+#else
             int status = softmax_obuf_row_mmio(accel, (size_t)i * row_pitch(length),
                                                probabilities + i * length, length, 1000000);
+#endif
             if (status)
                 fail("Direct softmax command failed. Check the loaded bitstream.");
         }
@@ -113,7 +120,11 @@ static void measure_board(const int8_t *scores, const int8_t *expected,
         for (int sample = 0; sample < count * length; ++sample)
             disagreements += probabilities[sample] != expected[base * length + sample];
     }
+#ifdef SOFTMAX_PACKED_BOARD
+    printf("Fabric with packed HPS MMIO: %.3f us/row, %zu mismatches / %zu codes\n",
+#else
     printf("Fabric with HPS MMIO: %.3f us/row, %zu mismatches / %zu codes\n",
+#endif
            (double)elapsed / rows / 1000, disagreements, (size_t)rows * length);
     if (disagreements)
         exit(EXIT_FAILURE);

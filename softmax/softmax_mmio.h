@@ -10,6 +10,9 @@
 #define SOFTMAX_SCORE_OFFSET  0x110u
 #define SOFTMAX_RESULT_OFFSET 0x120u
 #define SOFTMAX_OBUF_OFFSET   0x130u
+#define SOFTMAX_PACKED_OFFSET 0x200u
+#define SOFTMAX_PACKED_MODE   (1u << 24)
+#define SOFTMAX_PACKED_DONE   (1u << 13)
 #define SOFTMAX_VALID         (1u << 8)
 #define SOFTMAX_LAST          (1u << 9)
 #define SOFTMAX_OBUF_ERROR    (1u << 12)
@@ -74,6 +77,49 @@ static inline int softmax_obuf_row_mmio(volatile uint8_t *accel, size_t canvas_o
     softmax_write(accel, SOFTMAX_OBUF_OFFSET, ((uint32_t)length << 16) |
                                            (uint32_t)canvas_offset);
     return softmax_read_row(accel, probabilities, length, poll_limit);
+}
+
+/* After completion the packed aperture accepts aligned Avalon bursts. */
+static inline int softmax_obuf_wait_packed(volatile uint8_t *accel, size_t canvas_offset,
+                                           size_t length, unsigned poll_limit)
+{
+    if (length == 0 || length > SOFTMAX_MAX_LENGTH || poll_limit == 0 ||
+        (canvas_offset & 15u) || canvas_offset > 65536u - length)
+        return -EINVAL;
+
+    softmax_write(accel, SOFTMAX_OBUF_OFFSET, SOFTMAX_PACKED_MODE |
+                                           ((uint32_t)length << 16) |
+                                           (uint32_t)canvas_offset);
+    volatile uint32_t *status = (volatile uint32_t *)(accel + SOFTMAX_RESULT_OFFSET);
+    uint32_t word = 0;
+    for (unsigned poll = 0; poll < poll_limit; ++poll) {
+        word = *status;
+        if (word & (SOFTMAX_PACKED_DONE | SOFTMAX_OBUF_ERROR))
+            break;
+    }
+    if ((word & SOFTMAX_OBUF_ERROR) || !(word & SOFTMAX_PACKED_DONE)) {
+        softmax_write(accel, SOFTMAX_LENGTH_OFFSET, 0);
+        return (word & SOFTMAX_OBUF_ERROR) ? -EIO : -ETIMEDOUT;
+    }
+    return 0;
+}
+
+static inline int softmax_obuf_packed_mmio(volatile uint8_t *accel, size_t canvas_offset,
+                                          int8_t *probabilities, size_t length,
+                                          unsigned poll_limit)
+{
+    int status = softmax_obuf_wait_packed(accel, canvas_offset, length, poll_limit);
+    if (status)
+        return status;
+    volatile uint32_t *packed = (volatile uint32_t *)(accel + SOFTMAX_PACKED_OFFSET);
+    for (size_t key = 0; key < length;) {
+        uint32_t word = packed[key / 4];
+        for (unsigned byte = 0; byte < 4 && key < length; ++byte, ++key) {
+            probabilities[key] = (int8_t)(word & 0xffu);
+            word >>= 8;
+        }
+    }
+    return 0;
 }
 
 /* Convert one TinyViT query row. qk_scale is the real value of one OBUF

@@ -1,5 +1,25 @@
 # Signed INT8 softmax results
 
+## Experimental pipelined divider and packed readback
+
+The divider issues one probability per clock once its four radix-4 stages
+are full. An optional packed aperture collects the probabilities and exposes
+them in bus-width words. Legacy per-byte readback remains available.
+
+For 49 keys, ModelSim measured **318 cycles** to the last legacy result
+and **228 cycles** to the last packed Avalon word. The packed path is
+**3.04 µs at 75 MHz**, versus the original 5.512 µs HPS INT8 kernel benchmark.
+The fabric projection excludes the real HPS bridge and software overhead.
+The same core matched all 691,488 INT8 bytes from the saved HPS run.
+
+The standalone core fit used 432 ALMs, 328 registers, one M10K and zero
+DSPs. It passed 90 MHz with +4.734 ns worst setup slack. This fit excludes
+the packed result collector in the SoC.
+
+For the board benchmark, build `benchmark_hps.c` with both
+`-DSOFTMAX_BOARD` and `-DSOFTMAX_PACKED_BOARD`. The host polls completion
+and reads the packed probabilities in aligned 128-bit chunks.
+
 ## Overlapped RAM reads
 
 The shared RAM fetches the next score while writing the previous score's

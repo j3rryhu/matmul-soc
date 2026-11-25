@@ -11,8 +11,9 @@ register for both sources.
 | --- | --- | --- |
 | `0x0100` | Write | Bits 7:0 configure a length from 1 to 196. Zero aborts the current row and clears the length. |
 | `0x0110` | Write | Bits 7:0 submit one signed score. |
-| `0x0120` | Read | Bits 7:0 carry the probability, bit 8 is VALID, bit 9 is LAST, bit 10 is manual input ready, bit 11 is OBUF ingest busy, and bit 12 reports a rejected OBUF command. |
-| `0x0130` | Write | Bits 15:0 select a byte offset within OBUF and bits 23:16 give the row length. Requires byte lanes 0–2. |
+| `0x0120` | Read | Bits 7:0 carry the probability, bit 8 is VALID, bit 9 is LAST, bit 10 is manual input ready, bit 11 is OBUF ingest busy, bit 12 reports a rejected OBUF command, and bit 13 marks packed output complete. |
+| `0x0130` | Write | Bits 15:0 select a byte offset within OBUF and bits 23:16 give the row length. Bit 24 selects packed output when byte lane 3 is enabled. Requires byte lanes 0–2. |
+| `0x0200–0x02ff` | Read | Packed probabilities in key order. After completion, read `ceil(length / 16)` words on the 128-bit bus. The last word is zero-padded. |
 
 For direct ingest, wait for matmul completion and write `0x0130` once per
 row. Use the aligned OBUF row offset `query * round_up(canvas_width, 16)`
@@ -23,6 +24,11 @@ starts during the fetch phase. A rejected command sets bit 12 until the
 next valid command or a zero-length abort. A command is rejected while a
 fetch is active, before matmul finishes, after a raw-psum operation, or
 for an invalid length, alignment or OBUF range.
+
+In packed mode, poll bit 13 of `0x0120` and read the packed aperture once the
+row completes. An Avalon burst can read the whole row. The next accepted
+OBUF command replaces the packed data. A zero-length write cancels packed
+mode and clears completion.
 
 For manual input, set the length before writing the first score, then write
 exactly that many scores. This path uses byte lane zero and accepts scores

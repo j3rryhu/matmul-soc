@@ -30,7 +30,7 @@ module tb_softmax_directed;
                 if(out_valid && out_ready) begin
                     if($signed(out_probability)!=expected) $fatal(1,"Directed code mismatch");
                     if(out_last !== (received==n-1)) $fatal(1,"Incorrect last");
-                    if(received!=0 && cycles-previous_output!=7) $fatal(1,"Incorrect interval");
+                    if(received!=0 && cycles-previous_output!=1) $fatal(1,"Incorrect interval");
                     previous_output=cycles; received=received+1;
                 end
             end
@@ -44,7 +44,7 @@ module tb_softmax_directed;
         equal_row(49,3);
         equal_row(196,1);
         passed=1;
-        $display("PASS: signed INT8 range, ties-to-even, equal-row mass examples; first valid 2*N+8 clocks, interval 7 clocks");
+        $display("PASS: signed INT8 range, ties-to-even, equal-row mass examples; first valid 2*N+8 clocks, interval 1 clock");
         $finish;
     end
 endmodule

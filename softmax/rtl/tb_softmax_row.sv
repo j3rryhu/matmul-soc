@@ -28,7 +28,7 @@ module tb_softmax_row;
                 $fatal(1,"Output changed while stalled");
             if (out_valid && in_ready) $fatal(1,"Input accepted while output row active");
             if (out_valid && out_probability[7]) $fatal(1,"Negative probability code");
-            if (dut.state==8 && dut.rounded_code>127) $fatal(1,"Probability exceeds signed INT8 range");
+            if (dut.valid_pipe[4] && dut.rounded_code>127) $fatal(1,"Probability exceeds signed INT8 range");
         end
         stalled <= !reset && out_valid && !out_ready;
         held_probability <= out_probability;
@@ -62,9 +62,9 @@ module tb_softmax_row;
         @(negedge clk); in_valid=0;
         // Abort a partial input row.
         send_score(123,49); send_score(-128,49); do_reset();
-        // Abort active iterative division, not just reception/output.
+        // Abort an in-flight divider result.
         send_score(0,1);
-        wait(dut.state == 5 && dut.divide_step == 2);
+        wait(dut.valid_pipe[2]);
         do_reset();
         // Abort a stalled output, ensuring no stale valid survives reset.
         send_score(0,1);
