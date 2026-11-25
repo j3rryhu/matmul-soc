@@ -155,15 +155,15 @@ relocation error; the simulation itself ran successfully.
 ## Latency and current limits
 
 With no stalls, `out_valid` first asserts **85 clocks** after the final input
-handshake. Subsequent outputs can transfer every **14 clocks**. The core
+handshake. Subsequent outputs can transfer **every clock**. The core
 computes the integer square root and `floor(2^40 / denominator)` once per
 token. For each channel, it multiplies the numerator by the reciprocal and
 uses the true remainder to round. The magnitude of the numerator is below
 `2^40`, so the estimated floor quotient is at most one below the true floor
 quotient. Comparing twice the remainder against the denominator and three
-times the denominator recovers exact ties-to-even rounding. The previous
-radix-4 path produced its first output in 47 clocks and then one every 21
-clocks, so the reciprocal pays off as token length grows.
+times the denominator recovers exact ties-to-even rounding. The coefficient
+and activation reads feed normalization and affine pipelines that stall
+together when the next output cannot be accepted.
 
 ModelSim bit-exact verification establishes the selected integer behavior only.
 The original one-bit-divider standalone fit used 510 ALMs, 4 M10Ks and

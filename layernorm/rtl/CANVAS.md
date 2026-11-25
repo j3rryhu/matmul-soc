@@ -8,8 +8,10 @@ and writes the normalized codes back to their original locations. For a
 matmul `W[K,N] @ X[N,M]`, canvas row `k` is a channel and column `m` is a
 token. Each normalization operates on the `K` values in one column.
 
-The controller reads gamma and beta directly from its host-loaded coefficient
-RAM during normalization. Only activation values are buffered in the row core.
+The controller overlaps its activation fetch, byte capture and feed stages.
+The row core requests one gamma/beta pair per clock once the reciprocal is
+ready. Coefficients come directly from the host-loaded RAM, with the requested
+byte lane registered alongside the RAM read.
 
 ## Host interface
 

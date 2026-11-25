@@ -28,8 +28,8 @@ module layernorm_canvas #(
 );
     localparam MAX_CHANNELS = 576;
     localparam BANK_DEPTH = 1 << ADDR_WIDTH;
-    localparam [2:0] IDLE=0, CHECK=1, FETCH=2, CAPTURE=3, FEED=4, WRITE=5;
-    reg [2:0] state;
+    localparam [1:0] IDLE=0, CHECK=1, FETCH=2, WRITE=3;
+    reg [1:0] state;
     reg [9:0] length, channel;
     reg [ADDR_WIDTH:0] token_count, pitch;
     reg [ADDR_WIDTH-1:0] token, byte_addr;
@@ -40,7 +40,10 @@ module layernorm_canvas #(
     wire coeff_rd_en;
     wire [9:0] coeff_rd_index;
     wire [10:0] coeff_offset = {coeff_rd_index, 1'b0};
-    wire [15:0] coeff_pair = coeff_word[coeff_offset[WORD_SHIFT-1:0]*8 +: 16];
+    reg [WORD_SHIFT-1:0] coeff_lane;
+    wire [15:0] coeff_pair = coeff_word[coeff_lane*8 +: 16];
+    always @(posedge clk)
+        if (coeff_rd_en) coeff_lane <= coeff_offset[WORD_SHIFT-1:0];
     // Match the other accelerator memories' synchronous read latency.
     // Host writes are blocked while this port is in use.
     altsyncram #(
@@ -72,7 +75,10 @@ module layernorm_canvas #(
     wire end_of_group = &channel[BANK_BITS-1:0];
 
     assign busy = state != IDLE;
-    assign rd_en = state == FETCH;
+    reg issued_all, read_pending, read_last, input_valid, input_last;
+    wire in_ready, out_valid, out_last;
+    wire advance_input = !input_valid || in_ready;
+    assign rd_en = state == FETCH && advance_input && !issued_all;
     assign rd_addr = {channel[BANK_BITS-1:0], byte_addr[ADDR_WIDTH-1:WORD_SHIFT]};
     assign wr_bank = channel[BANK_BITS-1:0];
     assign wr_addr = byte_addr;
@@ -84,13 +90,12 @@ module layernorm_canvas #(
     wire [22:0] product = magnitude * 14'd14249;
     wire [7:0] rounded = (product + 23'd32768) >> 16;
     wire signed [7:0] scaled = input_code[7] ? -rounded : rounded;
-    wire in_ready, out_valid, out_last;
     wire out_ready = state == WRITE;
     assign wr_en = out_valid && out_ready;
 
     layernorm_row #(.EPS_FILE(EPS_FILE), .EXTERNAL_COEFF(1)) u_row (
         .clk(clk), .reset(!reset_n),
-        .in_valid(state == FEED), .in_ready(in_ready),
+        .in_valid(input_valid), .in_ready(in_ready),
         .in_data(rescale ? scaled : input_code),
         .in_gamma(coeff_pair[7:0]), .in_beta(coeff_pair[15:8]),
         .row_length(length),
@@ -112,6 +117,11 @@ module layernorm_canvas #(
             token <= 0;
             byte_addr <= 0;
             input_code <= 0;
+            issued_all <= 0;
+            read_pending <= 0;
+            read_last <= 0;
+            input_valid <= 0;
+            input_last <= 0;
         end else begin
             case (state)
                 IDLE: if (start) begin
@@ -136,20 +146,27 @@ module layernorm_canvas #(
                         state <= IDLE;
                     end else state <= FETCH;
                 end
-                FETCH: state <= CAPTURE;
-                CAPTURE: begin
-                    input_code <= rd_data[byte_addr[WORD_SHIFT-1:0]*8 +: 8];
-                    state <= FEED;
-                end
-                FEED: if (in_ready) begin
-                    if (channel == length - 1'b1) begin
+                FETCH: if (advance_input) begin
+                    // Within one token every read uses the same byte lane,
+                    // since row pitch is padded to the configured bus width.
+                    if (read_pending)
+                        input_code <= rd_data[token[WORD_SHIFT-1:0]*8 +: 8];
+                    input_valid <= read_pending;
+                    input_last <= read_last;
+                    read_pending <= rd_en;
+                    if (rd_en) begin
+                        read_last <= channel == length - 1'b1;
+                        if (channel == length - 1'b1) issued_all <= 1;
+                        else begin
+                            channel <= channel + 1'b1;
+                            if (end_of_group) byte_addr <= next_byte_addr;
+                        end
+                    end
+                    if (input_valid && input_last) begin
                         channel <= 0;
                         byte_addr <= token;
+                        issued_all <= 0;
                         state <= WRITE;
-                    end else begin
-                        channel <= channel + 1'b1;
-                        if (end_of_group) byte_addr <= next_byte_addr;
-                        state <= FETCH;
                     end
                 end
                 WRITE: if (out_valid) begin

@@ -21,19 +21,13 @@ module layernorm_row #(
     output wire [9:0] coeff_rd_index
 );
     localparam RECEIVE=0, VARIANCE=1, ROOT_INIT=2, ROOT_STEP=3,
-               READ=4, WAIT_READ=5, NORM_MULT=6, RECIP_STEP=7,
-               NORM_ROUND=8, Z_MULT=9, AFFINE=10, QUANTIZE=11, SEND=12,
-               SCALE_MULT=13, SCALE_JOIN=14, QUANT_MAG=15,
-               STATS_DRAIN=16, VAR_PRODUCTS=17, RECIP_INIT=18,
-               NORM_ESTIMATE=19, NORM_PRODUCT=20, NORM_REMAINDER=21;
-    reg [4:0] state;
+               READ=4, RECIP_STEP=7, DRAIN=9,
+               STATS_DRAIN=10, VAR_PRODUCTS=11, RECIP_INIT=12;
+    reg [3:0] state;
     reg signed [7:0] data_mem [0:575];
     reg [7:0] epsilon_rom [0:1023];
     reg signed [7:0] data_value;
     wire signed [7:0] gamma_value, beta_value;
-    // Separate M10K read timing from coefficient multiplication. Capture during
-    // the existing read-wait slot, then hold throughout normalization/division.
-    reg signed [7:0] gamma_channel, beta_channel;
     reg [7:0] epsilon_value;
     reg [9:0] count, length, index;
     reg signed [17:0] total;
@@ -72,31 +66,40 @@ module layernorm_row #(
     reg [33:0] recip_product_high;
     wire [20:0] estimate_sum = recip_product_high[20:0] +
                                {3'b0,recip_product_low[34:17]};
-    reg [19:0] estimate;
+    reg [19:0] estimate, estimate_after_product, estimate_for_round;
     reg [25:0] estimate_product, remainder;
+    reg [3:0] seed_after_mult, seed_after_estimate, seed_after_product;
     // The reciprocal truncation can lower the floor quotient by at most one.
     // Hence the residual is in [0, 2*denominator) and fits in 26 bits.
     // Subtracting the low 26 bits is sufficient to recover this residual.
     wire [26:0] twice_remainder = {remainder,1'b0};
     wire add_one = (twice_remainder > {2'b0,denominator}) ||
-                   ((twice_remainder == {2'b0,denominator}) && estimate[0]);
+                   ((twice_remainder == {2'b0,denominator}) && estimate_for_round[0]);
     wire add_two = (twice_remainder > triple_denominator) ||
-                   ((twice_remainder == triple_denominator) && !estimate[0]);
-    wire [20:0] rounded_magnitude = {1'b0,estimate} + (add_two ? 21'd2 : {20'b0,add_one});
+                   ((twice_remainder == triple_denominator) && !estimate_for_round[0]);
+    wire [20:0] rounded_magnitude = {1'b0,estimate_for_round} +
+                                    (add_two ? 21'd2 : {20'b0,add_one});
     // For N<=576, |z| <= 2*(floor(sqrt(575*2^28))+1) < 2^20,
     // including floor-root error and normalization rounding. Signed 21 bits
     // therefore preserve the exact integer result; 21x8 needs 29 signed bits.
     reg signed [20:0] normalized;
     reg signed [28:0] norm_gamma;
+    reg signed [7:0] affine_gamma, affine_beta, beta_for_scale;
+    reg read_valid, read_last;
+    reg [4:0] norm_valid, norm_last, norm_negative;
+    reg [15:0] norm_coeff [0:4];
+    reg [5:0] affine_valid, affine_last;
+    wire advance_pipeline = !out_valid || out_ready;
+    wire read_channel = !reset && state == READ && advance_pipeline;
     // Q16 affine ratios from the calibrated config: Mg=45764, Mb=55988.
     // Split signed 29-bit norm_gamma into signed high 13 and unsigned low 16.
     // Independent <=18x18 products terminate at registers, avoiding chained DSPs.
     reg signed [29:0] scale_high;
     reg [31:0] scale_low;
-    reg signed [24:0] scale_beta;
+    reg signed [24:0] scale_beta, delayed_scale_beta;
     wire signed [45:0] high_extended = {{16{scale_high[29]}},scale_high};
     wire signed [45:0] low_extended = $signed({14'b0,scale_low});
-    wire signed [45:0] beta_extended = {{21{scale_beta[24]}},scale_beta};
+    wire signed [45:0] beta_extended = {{21{delayed_scale_beta[24]}},delayed_scale_beta};
     reg signed [45:0] gamma_scaled, affine;
     // Separate absolute value from final rounding/saturation for timing.
     reg [45:0] output_magnitude;
@@ -109,12 +112,14 @@ module layernorm_row #(
 
     assign in_ready = !reset && state == RECEIVE &&
                       (count != 0 || (row_length >= 1 && row_length <= 576));
-    assign coeff_rd_en = EXTERNAL_COEFF && !reset && state == READ;
+    wire last_channel = index == length-1;
+    assign coeff_rd_en = EXTERNAL_COEFF && !reset && read_channel;
     assign coeff_rd_index = EXTERNAL_COEFF ? index : 10'd0;
     initial $readmemh(EPS_FILE, epsilon_rom);
     // No memory resets; explicit states allow registered/block-memory reads.
     always @(posedge clk) begin
-        data_value <= data_mem[index];
+        if (read_channel)
+            data_value <= data_mem[index];
         epsilon_value <= epsilon_rom[length];
     end
     generate
@@ -127,12 +132,14 @@ module layernorm_row #(
             always @(posedge clk) begin
                 if (in_valid && in_ready)
                     affine_mem[count] <= {in_beta, in_gamma};
-                affine_value <= affine_mem[index];
+                if (read_channel)
+                    affine_value <= affine_mem[index];
             end
             assign {beta_value, gamma_value} = affine_value;
         end
     endgenerate
 
+    integer norm_stage;
     always @(posedge clk) begin
         if (reset) begin
             state <= RECEIVE;
@@ -145,13 +152,87 @@ module layernorm_row #(
             centered_reg <= 0; reciprocal <= 0; recip_remainder <= 0; recip_step <= 0;
             recip_product_low <= 0; recip_product_high <= 0;
             estimate <= 0; estimate_product <= 0; remainder <= 0;
+            estimate_after_product <= 0; estimate_for_round <= 0;
+            seed_after_mult <= 0; seed_after_estimate <= 0; seed_after_product <= 0;
             triple_denominator <= 0;
             normalized <= 0; norm_gamma <= 0; affine <= 0;
-            gamma_channel <= 0; beta_channel <= 0;
+            read_valid <= 0; read_last <= 0;
+            norm_valid <= 0; norm_last <= 0; norm_negative <= 0;
+            affine_gamma <= 0; affine_beta <= 0; beta_for_scale <= 0;
+            affine_valid <= 0; affine_last <= 0;
             scale_high <= 0; scale_low <= 0; scale_beta <= 0;
+            delayed_scale_beta <= 0;
             gamma_scaled <= 0; output_magnitude <= 0; output_negative <= 0;
             out_valid <= 0; out_data <= 0; out_last <= 0;
         end else begin
+            // Once the reciprocal is ready, read and normalize one channel
+            // per clock. All stage data and valid markers hold on a stall.
+            if (advance_pipeline) begin
+                read_valid <= read_channel;
+                read_last <= last_channel;
+                norm_valid <= {norm_valid[3:0], read_valid};
+                norm_last <= {norm_last[3:0], read_last};
+                norm_negative <= {norm_negative[3:0], centered[18]};
+                if (read_valid) begin
+                    centered_reg <= centered;
+                    norm_coeff[0] <= {beta_value, gamma_value};
+                end
+                for (norm_stage=1; norm_stage<=4; norm_stage=norm_stage+1)
+                    norm_coeff[norm_stage] <= norm_coeff[norm_stage-1];
+                if (norm_valid[0]) begin
+                    recip_product_low <= centered_magnitude * reciprocal[16:0];
+                    recip_product_high <= centered_magnitude * reciprocal[32:17];
+                    seed_after_mult <= centered_magnitude[3:0];
+                end
+                if (norm_valid[1]) begin
+                    estimate <= estimate_sum[20:1];
+                    seed_after_estimate <= seed_after_mult;
+                end
+                if (norm_valid[2]) begin
+                    estimate_product <= estimate * denominator;
+                    estimate_after_product <= estimate;
+                    seed_after_product <= seed_after_estimate;
+                end
+                if (norm_valid[3]) begin
+                    remainder <= {seed_after_product,22'b0} - estimate_product;
+                    estimate_for_round <= estimate_after_product;
+                end
+
+                affine_valid <= {affine_valid[4:0], norm_valid[4]};
+                affine_last <= {affine_last[4:0], norm_last[4]};
+                if (norm_valid[4]) begin
+                    normalized <= norm_negative[4] ? -$signed(rounded_magnitude)
+                                                   : $signed(rounded_magnitude);
+                    {affine_beta, affine_gamma} <= norm_coeff[4];
+                end
+                if (affine_valid[0]) begin
+                    norm_gamma <= $signed(normalized)*$signed(affine_gamma);
+                    beta_for_scale <= affine_beta;
+                end
+                if (affine_valid[1]) begin
+                    scale_high <= $signed(norm_gamma[28:16])*17'sd45764;
+                    scale_low <= norm_gamma[15:0]*16'd45764;
+                    scale_beta <= $signed(beta_for_scale)*17'sd55988;
+                end
+                if (affine_valid[2]) begin
+                    gamma_scaled <= (high_extended <<< 16)+low_extended;
+                    delayed_scale_beta <= scale_beta;
+                end
+                if (affine_valid[3])
+                    affine <= gamma_scaled + (beta_extended <<< 14);
+                if (affine_valid[4]) begin
+                    output_magnitude <= affine[45] ? -affine : affine;
+                    output_negative <= affine[45];
+                end
+                if (affine_valid[5]) begin
+                    if (output_code > 46'sd127) out_data <= 8'sd127;
+                    else if (output_code < -46'sd128) out_data <= 8'sh80;
+                    else out_data <= output_code[7:0];
+                end
+                out_valid <= affine_valid[5];
+                out_last <= affine_valid[5] && affine_last[5];
+            end
+
             // Each accepted sample contributes once, including through stalls.
             square_valid <= {square_valid[0], in_valid && in_ready};
             if (square_valid[0])
@@ -213,75 +294,15 @@ module layernorm_row #(
                     if (recip_step == 39) state <= READ;
                     else recip_step <= recip_step+1'b1;
                 end
-                READ: state <= WAIT_READ;
-                WAIT_READ: begin
-                    gamma_channel <= gamma_value;
-                    beta_channel <= beta_value;
-                    centered_reg <= centered;
-                    state <= NORM_MULT;
+                READ: if (read_channel) begin
+                    if (last_channel) state <= DRAIN;
+                    else index <= index+1'b1;
                 end
-                NORM_MULT: begin
-                    recip_product_low <= centered_magnitude * reciprocal[16:0];
-                    recip_product_high <= centered_magnitude * reciprocal[32:17];
-                    state <= NORM_ESTIMATE;
-                end
-                NORM_ESTIMATE: begin
-                    estimate <= estimate_sum[20:1];
-                    state <= NORM_PRODUCT;
-                end
-                NORM_PRODUCT: begin
-                    estimate_product <= estimate * denominator;
-                    state <= NORM_REMAINDER;
-                end
-                NORM_REMAINDER: begin
-                    remainder <= {centered_magnitude[3:0],22'b0} - estimate_product;
-                    state <= NORM_ROUND;
-                end
-                NORM_ROUND: begin
-                    normalized <= centered_reg[18] ? -$signed(rounded_magnitude) : $signed(rounded_magnitude);
-                    state <= Z_MULT;
-                end
-                Z_MULT: begin
-                    norm_gamma <= $signed(normalized)*$signed(gamma_channel);
-                    state <= SCALE_MULT;
-                end
-                SCALE_MULT: begin
-                    scale_high <= $signed(norm_gamma[28:16])*17'sd45764;
-                    scale_low <= norm_gamma[15:0]*16'd45764;
-                    scale_beta <= $signed(beta_channel)*17'sd55988;
-                    state <= SCALE_JOIN;
-                end
-                SCALE_JOIN: begin
-                    gamma_scaled <= (high_extended <<< 16)+low_extended;
-                    state <= AFFINE;
-                end
-                AFFINE: begin
-                    affine <= gamma_scaled + (beta_extended <<< 14);
-                    state <= QUANT_MAG;
-                end
-                QUANT_MAG: begin
-                    output_magnitude <= affine[45] ? -affine : affine;
-                    output_negative <= affine[45];
-                    state <= QUANTIZE;
-                end
-                QUANTIZE: begin
-                    if (output_code > 46'sd127) out_data <= 8'sd127;
-                    else if (output_code < -46'sd128) out_data <= 8'sh80;
-                    else out_data <= output_code[7:0];
-                    out_last <= index == length-1;
-                    out_valid <= 1;
-                    state <= SEND;
-                end
-                SEND: if (out_valid && out_ready) begin
-                    out_valid <= 0; out_last <= 0;
-                    if (index == length-1) state <= RECEIVE;
-                    else begin
-                        index <= index+1'b1;
-                        state <= READ;
-                    end
-                end
+                DRAIN: if (out_valid && out_ready && out_last) state <= RECEIVE;
                 default: begin
-                    state <= RECEIVE; count <= 0; out_valid <= 0; out_last <= 0;
+                    state <= RECEIVE; count <= 0; read_valid <= 0;
+                    norm_valid <= 0; affine_valid <= 0;
+                    out_valid <= 0; out_last <= 0;
                 end
             endcase
         end

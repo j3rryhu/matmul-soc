@@ -1,8 +1,25 @@
 # INT8 LayerNorm results
 
-See [shared reciprocal](#shared-reciprocal) for the current RTL and
+See the [experimental channel pipeline](#experimental-channel-pipeline) for the current RTL and
 the [integrated canvas benchmark](#integrated-canvas-and-cortex-a9-comparison)
 for the earlier controller fit and HPS comparison.
+
+## Experimental channel pipeline
+
+The canvas overlaps activation reads, byte capture and input handshakes.
+After computing the shared reciprocal, the core reads and processes one
+channel per clock through normalization and affine pipelines. Both pipelines
+hold their data and valid markers together under backpressure. The
+standalone golden regression matched all 200,296 outputs, and the
+integrated canvas passed with GELU enabled and bypassed.
+
+ModelSim measured **472 cycles** from the accepted canvas command to the
+last writeback for a 192-channel token, down from 3,337. That projects to
+**6.29 µs at 75 MHz**, before HPS bridge traffic and host polling. The prior
+board baselines are 40.43 µs for exact-corrected INT8 and 7.76 µs for FP32.
+The isolated canvas fit passed 75 MHz with +2.307 ns worst setup slack
+and +0.138 ns worst hold slack. It used 949 ALMs, 1,054 registers,
+six M10Ks (22,016 bits) and 13 DSPs.
 
 ## Shared reciprocal
 

@@ -12,6 +12,8 @@ module tb_layernorm_canvas;
     wire [127:0] readdata;
     wire readdatavalid, waitrequest;
     reg passed = 0;
+    integer cycle = 0, launch_cycle = 0;
+    reg previous_done = 0;
 
     accel_top dut (
         .clk(clk), .reset_n(reset_n), .avs_address(address),
@@ -20,6 +22,17 @@ module tb_layernorm_canvas;
         .avs_readdata(readdata), .avs_readdatavalid(readdatavalid),
         .avs_waitrequest(waitrequest)
     );
+
+    always @(posedge clk) begin
+        cycle = cycle + 1;
+        if (dut.ln_start) launch_cycle = cycle;
+    end
+    always @(negedge clk) begin
+        if (reset_n && dut.ln_done && !previous_done &&
+            cycle - launch_cycle != M*(2*K+87)+1)
+            $fatal(1, "Unexpected LayerNorm latency: %0d clocks", cycle-launch_cycle);
+        previous_done = dut.ln_done;
+    end
 
     reg [127:0] weights [0:K-1], inputs [0:N*2-1], bias [0:4], coeff [0:2];
     reg [127:0] raw [0:WORDS-1], gelu [0:WORDS-1];
