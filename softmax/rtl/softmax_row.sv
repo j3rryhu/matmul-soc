@@ -59,10 +59,14 @@ module softmax_row #(
     wire write_row = receive_score || (!reset && state == EXP_STORE);
     wire [7:0] write_addr = receive_score ? count : index;
     wire [15:0] write_data = receive_score ? {8'b0, in_score} : row_value;
-    wire [8:0] read_addr = state == EXP_READ ? {1'b1, rom_address} : {1'b0, index};
-    // SCORE_READ fetches the score, EXP_READ fetches its exponential, and
-    // EXP_STORE replaces the consumed score. Same-address read/write
-    // output is discarded until a subsequent SCORE_READ or WEIGHT_READ.
+    wire more = index != length-1;
+    wire prefetch = more && (state == EXP_STORE ||
+                             (state == SEND && out_valid && out_ready));
+    wire [7:0] row_read_index = prefetch ? index+1'b1 : index;
+    wire [8:0] read_addr = state == EXP_READ ? {1'b1, rom_address} :
+                                               {1'b0, row_read_index};
+    // While writing an exponential, read the next score from a different
+    // address. On an output handshake, read the next exponential directly.
     always @(posedge clk) begin
         if (write_row)
             table_mem[{1'b0, write_addr}] <= write_data;
@@ -103,12 +107,12 @@ module softmax_row #(
                 EXP_READ: state <= EXP_STORE;
                 EXP_STORE: begin
                     total <= total + {8'b0, row_value};
-                    if (index == length-1) begin
+                    if (!more) begin
                         index <= 0;
                         state <= WEIGHT_READ;
                     end else begin
                         index <= index+1'b1;
-                        state <= SCORE_READ;
+                        state <= EXP_READ;
                     end
                 end
                 WEIGHT_READ: state <= NORMALIZE;
@@ -134,10 +138,10 @@ module softmax_row #(
                 SEND: if (out_valid && out_ready) begin
                     out_valid <= 0;
                     out_last <= 0;
-                    if (index == length-1) state <= RECEIVE;
+                    if (!more) state <= RECEIVE;
                     else begin
                         index <= index+1'b1;
-                        state <= WEIGHT_READ;
+                        state <= NORMALIZE;
                     end
                 end
                 default: state <= RECEIVE;

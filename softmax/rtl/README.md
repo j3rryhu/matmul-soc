@@ -24,7 +24,8 @@ The core also runs behind the accelerator's Avalon MMIO registers. See
 The core buffers scores, finds their maximum, and replays them through a 256x16
 exponential table, accumulating a 24-bit sum. One synchronous 512x16 RAM holds
 the table at addresses 256–511 and the row scratch space in the lower half.
-Each exponential overwrites its score after the score has been consumed.
+Each exponential overwrites its consumed score while the read port fetches
+the next score at a different address.
 Differences widen to signed 9 bits, covering 0..255. Input and output are INT8.
 
 Each numerator is `e*127`, implemented as shift/subtract, fitting unsigned 23 bits.
@@ -36,11 +37,10 @@ digit and next remainder. A separate state compares twice
 the remainder with the sum and applies ties-to-even rounding. Output is bounded
 by 127; its sign bit is zero. The exponential LUT approximates exp only.
 
-For each output there is a weight-read state, normalization-load state, 4 divide
-states, a rounding state and an output-transfer state. With no stalls, output
-handshakes are **8 clocks apart**. First valid asserts `3*N+7` clocks after
-the final input handshake. The directed test measures these timings. Outputs are
-still computed serially.
+The first output starts with a weight read. Each subsequent weight is
+prefetched on the preceding output handshake. With no stalls, output
+handshakes are **7 clocks apart**. First valid asserts `2*N+8` clocks after
+the final input handshake. The directed test measures these timings.
 
 ## Simulation and vectors
 

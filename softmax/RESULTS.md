@@ -1,5 +1,21 @@
 # Signed INT8 softmax results
 
+## Overlapped RAM reads
+
+The shared RAM fetches the next score while writing the previous score's
+exponential. The core also fetches the next exponential on each accepted
+output. This keeps the single RAM and reduces the unstalled output interval
+from 8 to 7 clocks.
+
+ModelSim measured **606 cycles** from the accepted OBUF command to the last
+Avalon result for 49 keys, down from 654. This is **8.08 µs at 75 MHz**
+before the HPS bridge and host polling. The SoC regression passed and all
+691,488 reference output bytes matched.
+
+The standalone fit passed 90 MHz across all four corners with +4.223 ns
+worst setup and +0.132 ns worst hold slack. It used 225 ALMs, 193
+registers, one M10K (8,192 bits), and zero DSP blocks.
+
 ## Shortened divider and shared RAM
 
 Because each exponential is at most the sum, the exact softmax quotient is

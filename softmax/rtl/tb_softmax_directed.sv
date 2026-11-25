@@ -23,14 +23,14 @@ module tb_softmax_directed;
             end
             @(negedge clk); in_valid=0;
             wait(out_valid); #1;
-            if(cycles-last_input!=3*n+7) $fatal(1,"Incorrect first-valid latency");
+            if(cycles-last_input!=2*n+8) $fatal(1,"Incorrect first-valid latency");
             received=0;
             while(received<n) begin
                 @(posedge clk);
                 if(out_valid && out_ready) begin
                     if($signed(out_probability)!=expected) $fatal(1,"Directed code mismatch");
                     if(out_last !== (received==n-1)) $fatal(1,"Incorrect last");
-                    if(received!=0 && cycles-previous_output!=8) $fatal(1,"Incorrect interval");
+                    if(received!=0 && cycles-previous_output!=7) $fatal(1,"Incorrect interval");
                     previous_output=cycles; received=received+1;
                 end
             end
@@ -44,7 +44,7 @@ module tb_softmax_directed;
         equal_row(49,3);
         equal_row(196,1);
         passed=1;
-        $display("PASS: signed INT8 range, ties-to-even, equal-row mass examples; first valid 3*N+7 clocks, interval 8 clocks");
+        $display("PASS: signed INT8 range, ties-to-even, equal-row mass examples; first valid 2*N+8 clocks, interval 7 clocks");
         $finish;
     end
 endmodule
