@@ -1,8 +1,28 @@
 # INT8 LayerNorm results
 
-See [shared coefficient memory](#shared-coefficient-memory) for the current RTL and
+See [shared reciprocal](#shared-reciprocal) for the current RTL and
 the [integrated canvas benchmark](#integrated-canvas-and-cortex-a9-comparison)
 for the earlier controller fit and HPS comparison.
+
+## Shared reciprocal
+
+The row core registers the input and square before accumulation, and
+registers the two variance products before subtracting them. It computes
+one fixed-point reciprocal of the integer standard deviation per token.
+A per-channel multiply estimates the quotient, then an integer residual
+gives exact ties-to-even rounding. The output interval fell from 21 to
+14 clocks. The first output takes 85 clocks after the last input, up
+from 47 clocks, because reciprocal setup is shared across the token.
+
+ModelSim measured **3,337 cycles** from the accepted canvas command to
+writeback for 192 channels, down from 4,636. That corresponds to
+**44.49 µs at 75 MHz** before HPS bridge traffic and polling. The
+standalone regression matched all 200,296 reference INT8 outputs. The
+canvas regression passed with GELU enabled and bypassed.
+
+The isolated canvas fit passed 75 MHz across all four corners with
++2.314 ns worst setup and +0.131 ns worst hold slack. It used 950 ALMs,
+867 registers, six M10Ks (22,016 bits), and 13 DSP blocks.
 
 ## Shared coefficient memory
 

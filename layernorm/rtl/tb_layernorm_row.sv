@@ -64,12 +64,12 @@ module tb_layernorm_row;
         @(negedge clk); row_length=1023;
         @(posedge clk); if(in_ready) $fatal(1,"Accepted length 1023");
         @(negedge clk); in_valid=0;
-        // Reset partial reception, active sqrt, active division, and stalled output.
+        // Reset partial reception, active sqrt, reciprocal generation, and stalled output.
         send_value(-128,96,0,576); send_value(127,-128,127,0); do_reset();
         send_value(127,96,0,1);
         wait(dut.state==3 && dut.root_step==10); do_reset();
         send_value(-128,96,0,1);
-        wait(dut.state==7 && dut.divide_step==5); do_reset();
+        wait(dut.state==7 && dut.recip_step==5); do_reset();
         send_value(127,-128,127,1);
         wait(dut.state==13); do_reset();
         send_value(-128,127,-128,1);

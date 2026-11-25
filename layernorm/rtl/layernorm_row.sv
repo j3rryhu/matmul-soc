@@ -21,10 +21,12 @@ module layernorm_row #(
     output wire [9:0] coeff_rd_index
 );
     localparam RECEIVE=0, VARIANCE=1, ROOT_INIT=2, ROOT_STEP=3,
-               READ=4, WAIT_READ=5, NORM_INIT=6, DIVIDE=7,
+               READ=4, WAIT_READ=5, NORM_MULT=6, RECIP_STEP=7,
                NORM_ROUND=8, Z_MULT=9, AFFINE=10, QUANTIZE=11, SEND=12,
-               SCALE_MULT=13, SCALE_JOIN=14, QUANT_MAG=15;
-    reg [3:0] state;
+               SCALE_MULT=13, SCALE_JOIN=14, QUANT_MAG=15,
+               STATS_DRAIN=16, VAR_PRODUCTS=17, RECIP_INIT=18,
+               NORM_ESTIMATE=19, NORM_PRODUCT=20, NORM_REMAINDER=21;
+    reg [4:0] state;
     reg signed [7:0] data_mem [0:575];
     reg [7:0] epsilon_rom [0:1023];
     reg signed [7:0] data_value;
@@ -36,9 +38,10 @@ module layernorm_row #(
     reg [9:0] count, length, index;
     reg signed [17:0] total;
     reg [23:0] squares;
-    wire signed [15:0] input_square = $signed(in_data)*$signed(in_data);
-    wire [32:0] n_squares = {23'b0,length} * {9'b0,squares};
-    wire signed [35:0] total_square = $signed(total)*$signed(total);
+    reg signed [7:0] square_input;
+    reg [15:0] input_square;
+    reg [1:0] square_valid;
+    reg [32:0] n_squares, total_square;
     reg [32:0] variance_numerator;
     wire [32:0] variance_epsilon = variance_numerator + {25'b0,epsilon_value};
 
@@ -52,33 +55,34 @@ module layernorm_row #(
     wire root_bit = root_trial >= root_subtrahend;
     wire [24:0] next_root = {root_result[23:0],root_bit};
 
-    // (N*q-S) has 19 signed bits. The magnitude of the scaled numerator
-    // is |N*q-S| << 22, so its bottom 20 bits are all zero.
+    // |N*q-S| <= 575*255 < 2^18. The scaled numerator is below 2^40.
     wire signed [18:0] centered = $signed({1'b0,length})*$signed(data_value)-$signed(total);
-    wire [18:0] centered_magnitude = centered[18] ? -centered : centered;
-    // The quotient magnitude is < 2^20 (see bound below), so shifting the
-    // numerator right by 20 gives a prefix strictly below the denominator.
-    // Load it as the remainder, then consume ten zero bit pairs.
-    reg [19:0] quotient;
-    reg [25:0] remainder;
-    reg [3:0] divide_step;
-    reg negative;
+    reg signed [18:0] centered_reg;
+    wire [17:0] centered_magnitude = centered_reg[18] ? -centered_reg : centered_reg;
+    // Compute floor(2^40 / denominator) once per token. E >= 1 makes
+    // denominator >= 256, so the reciprocal needs at most 33 bits.
+    reg [32:0] reciprocal;
+    reg [24:0] recip_remainder;
+    reg [5:0] recip_step;
+    wire [25:0] recip_trial = {recip_remainder, 1'b0};
+    wire [26:0] recip_difference = {1'b0,recip_trial} - {2'b0,denominator};
+    wire recip_bit = !recip_difference[26];
     reg [26:0] triple_denominator;
-    // Remainder < denominator, so each trial is < 4*denominator.
-    // Compare and subtract all three candidates in parallel using borrow bits.
-    wire [26:0] divide_trial = {remainder[24:0], 2'b00};
-    wire [27:0] minus_one = {1'b0, divide_trial} - {3'b0, denominator};
-    wire [27:0] minus_two = {1'b0, divide_trial} - {2'b0, denominator, 1'b0};
-    wire [27:0] minus_three = {1'b0, divide_trial} - {1'b0, triple_denominator};
-    wire [1:0] digit = !minus_two[27] ? {1'b1, !minus_three[27]} :
-                                       {1'b0, !minus_one[27]};
-    wire [25:0] next_remainder = !minus_three[27] ? minus_three[25:0] :
-                                 !minus_two[27]   ? minus_two[25:0] :
-                                 !minus_one[27]   ? minus_one[25:0] : divide_trial[25:0];
+    reg [34:0] recip_product_low;
+    reg [33:0] recip_product_high;
+    wire [20:0] estimate_sum = recip_product_high[20:0] +
+                               {3'b0,recip_product_low[34:17]};
+    reg [19:0] estimate;
+    reg [25:0] estimate_product, remainder;
+    // The reciprocal truncation can lower the floor quotient by at most one.
+    // Hence the residual is in [0, 2*denominator) and fits in 26 bits.
+    // Subtracting the low 26 bits is sufficient to recover this residual.
     wire [26:0] twice_remainder = {remainder,1'b0};
-    wire round_normalize = (twice_remainder > {2'b0,denominator}) ||
-                         ((twice_remainder == {2'b0,denominator}) && quotient[0]);
-    wire [20:0] rounded_magnitude = {1'b0, quotient} + {{20{1'b0}},round_normalize};
+    wire add_one = (twice_remainder > {2'b0,denominator}) ||
+                   ((twice_remainder == {2'b0,denominator}) && estimate[0]);
+    wire add_two = (twice_remainder > triple_denominator) ||
+                   ((twice_remainder == triple_denominator) && !estimate[0]);
+    wire [20:0] rounded_magnitude = {1'b0,estimate} + (add_two ? 21'd2 : {20'b0,add_one});
     // For N<=576, |z| <= 2*(floor(sqrt(575*2^28))+1) < 2^20,
     // including floor-root error and normalization rounding. Signed 21 bits
     // therefore preserve the exact integer result; 21x8 needs 29 signed bits.
@@ -134,9 +138,13 @@ module layernorm_row #(
             state <= RECEIVE;
             count <= 0; length <= 0; index <= 0;
             total <= 0; squares <= 0; variance_numerator <= 0;
+            square_valid <= 0; square_input <= 0; input_square <= 0;
+            n_squares <= 0; total_square <= 0;
             radicand <= 0; root_remainder <= 0; root_result <= 0;
             denominator <= 0; root_step <= 0;
-            quotient <= 0; remainder <= 0; divide_step <= 0; negative <= 0;
+            centered_reg <= 0; reciprocal <= 0; recip_remainder <= 0; recip_step <= 0;
+            recip_product_low <= 0; recip_product_high <= 0;
+            estimate <= 0; estimate_product <= 0; remainder <= 0;
             triple_denominator <= 0;
             normalized <= 0; norm_gamma <= 0; affine <= 0;
             gamma_channel <= 0; beta_channel <= 0;
@@ -144,25 +152,38 @@ module layernorm_row #(
             gamma_scaled <= 0; output_magnitude <= 0; output_negative <= 0;
             out_valid <= 0; out_data <= 0; out_last <= 0;
         end else begin
+            // Each accepted sample contributes once, including through stalls.
+            square_valid <= {square_valid[0], in_valid && in_ready};
+            if (square_valid[0])
+                input_square <= $signed(square_input) * $signed(square_input);
+            if (square_valid[1])
+                squares <= squares + {8'b0,input_square};
             case (state)
                 RECEIVE: if (in_valid && in_ready) begin
                     data_mem[count] <= in_data;
+                    square_input <= in_data;
                     if (count == 0) begin
                         length <= row_length;
                         total <= {{10{in_data[7]}},in_data};
-                        squares <= {8'b0,input_square};
+                        squares <= 0;
                     end else begin
                         total <= total + {{10{in_data[7]}},in_data};
-                        squares <= squares + {8'b0,input_square};
                     end
                     if ((count == 0 && row_length == 1) ||
                         (count != 0 && count == length-1)) begin
                         count <= 0; index <= 0;
-                        state <= VARIANCE;
+                        state <= STATS_DRAIN;
                     end else count <= count+1'b1;
                 end
+                STATS_DRAIN: if (!square_valid[0] && !square_valid[1])
+                    state <= VAR_PRODUCTS;
+                VAR_PRODUCTS: begin
+                    n_squares <= length * squares;
+                    total_square <= $signed(total) * $signed(total);
+                    state <= VARIANCE;
+                end
                 VARIANCE: begin
-                    variance_numerator <= n_squares-total_square[32:0];
+                    variance_numerator <= n_squares-total_square;
                     state <= ROOT_INIT;
                 end
                 ROOT_INIT: begin
@@ -176,32 +197,48 @@ module layernorm_row #(
                     root_result <= next_root;
                     if (root_step == 24) begin
                         denominator <= next_root;
-                        state <= READ;
+                        state <= RECIP_INIT;
                     end else root_step <= root_step+1'b1;
                 end
-                READ: begin
+                RECIP_INIT: begin
+                    reciprocal <= 0;
+                    recip_remainder <= 1;
+                    recip_step <= 0;
                     triple_denominator <= {1'b0, denominator, 1'b0} + {2'b0, denominator};
-                    state <= WAIT_READ;
+                    state <= RECIP_STEP;
                 end
+                RECIP_STEP: begin
+                    reciprocal <= {reciprocal[31:0],recip_bit};
+                    recip_remainder <= recip_bit ? recip_difference[24:0] : recip_trial[24:0];
+                    if (recip_step == 39) state <= READ;
+                    else recip_step <= recip_step+1'b1;
+                end
+                READ: state <= WAIT_READ;
                 WAIT_READ: begin
                     gamma_channel <= gamma_value;
                     beta_channel <= beta_value;
-                    state <= NORM_INIT;
+                    centered_reg <= centered;
+                    state <= NORM_MULT;
                 end
-                NORM_INIT: begin
-                    quotient <= 0; remainder <= {5'b0, centered_magnitude, 2'b00};
-                    divide_step <= 0;
-                    negative <= centered[18];
-                    state <= DIVIDE;
+                NORM_MULT: begin
+                    recip_product_low <= centered_magnitude * reciprocal[16:0];
+                    recip_product_high <= centered_magnitude * reciprocal[32:17];
+                    state <= NORM_ESTIMATE;
                 end
-                DIVIDE: begin
-                    quotient <= {quotient[17:0], digit};
-                    remainder <= next_remainder;
-                    if (divide_step == 9) state <= NORM_ROUND;
-                    else divide_step <= divide_step+1'b1;
+                NORM_ESTIMATE: begin
+                    estimate <= estimate_sum[20:1];
+                    state <= NORM_PRODUCT;
+                end
+                NORM_PRODUCT: begin
+                    estimate_product <= estimate * denominator;
+                    state <= NORM_REMAINDER;
+                end
+                NORM_REMAINDER: begin
+                    remainder <= {centered_magnitude[3:0],22'b0} - estimate_product;
+                    state <= NORM_ROUND;
                 end
                 NORM_ROUND: begin
-                    normalized <= negative ? -$signed(rounded_magnitude[20:0]) : $signed(rounded_magnitude[20:0]);
+                    normalized <= centered_reg[18] ? -$signed(rounded_magnitude) : $signed(rounded_magnitude);
                     state <= Z_MULT;
                 end
                 Z_MULT: begin

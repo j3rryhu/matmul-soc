@@ -70,8 +70,10 @@ floor, exactly as in software. All saturation occurs after the affine stage.
 
 Important widths include signed 18-bit S, unsigned 24-bit Q, unsigned 33-bit D,
 49-bit square-root argument (padded to 50 bits), 25-bit denominator and signed
-41-bit normalization numerator. A 25-step digit-by-digit square root and a
-10-step radix-4 restoring divider avoid combinational `/` or `$sqrt`. Normalized results
+41-bit signed normalization numerator. A 25-step digit-by-digit square root
+and a shared reciprocal calculation avoid combinational `/` or `$sqrt`.
+Registered input, square and variance-product stages keep the rescale and
+reduction paths separate. Normalized results
 use signed 21-bit storage, the gamma product signed 29-bit storage, and affine
 arithmetic signed 46-bit storage; these cover the software bounds for this
 fixed config. Coefficients are captured into channel registers during the
@@ -152,14 +154,16 @@ relocation error; the simulation itself ran successfully.
 
 ## Latency and current limits
 
-With no stalls, `out_valid` first asserts **47 clocks** after the final input
-handshake. Subsequent outputs can transfer every **21 clocks**. The 25-step
-square root is shared across the row. The quotient magnitude is less than
-`2^20`, so the radix-4 divider loads the upper numerator bits as its initial
-remainder. It consumes the remaining 20 bits in **10 cycles per channel**.
-Three parallel subtractions select the quotient digit and next remainder.
-The previous radix-4 implementation used 21 divide cycles, with 58 clocks to
-first valid and 32 clocks between outputs. The core computes channels serially.
+With no stalls, `out_valid` first asserts **85 clocks** after the final input
+handshake. Subsequent outputs can transfer every **14 clocks**. The core
+computes the integer square root and `floor(2^40 / denominator)` once per
+token. For each channel, it multiplies the numerator by the reciprocal and
+uses the true remainder to round. The magnitude of the numerator is below
+`2^40`, so the estimated floor quotient is at most one below the true floor
+quotient. Comparing twice the remainder against the denominator and three
+times the denominator recovers exact ties-to-even rounding. The previous
+radix-4 path produced its first output in 47 clocks and then one every 21
+clocks, so the reciprocal pays off as token length grows.
 
 ModelSim bit-exact verification establishes the selected integer behavior only.
 The original one-bit-divider standalone fit used 510 ALMs, 4 M10Ks and

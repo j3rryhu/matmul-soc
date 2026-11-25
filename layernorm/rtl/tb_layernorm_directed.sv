@@ -30,15 +30,15 @@ module tb_layernorm_directed;
             @(negedge clk); in_valid=0;
             wait(out_valid);
             #1;
-            if(cycles-last_input_cycle!=47) $fatal(1,"First valid latency %0d, expected 47",cycles-last_input_cycle);
+            if(cycles-last_input_cycle!=85) $fatal(1,"First valid latency %0d, expected 85",cycles-last_input_cycle);
             received=0;
             while(received<2) begin
                 @(posedge clk);
                 if(out_valid && out_ready) begin
                     if($signed(out_data)!=24*sign_value) $fatal(1,"Ties-to-even mismatch");
                     if(out_last !== (received==1)) $fatal(1,"Directed last mismatch");
-                    if(received==1 && cycles-previous_output_cycle!=21)
-                        $fatal(1,"Output interval %0d, expected 21",cycles-previous_output_cycle);
+                    if(received==1 && cycles-previous_output_cycle!=14)
+                        $fatal(1,"Output interval %0d, expected 14",cycles-previous_output_cycle);
                     previous_output_cycle=cycles;
                     received=received+1;
                 end
@@ -51,7 +51,7 @@ module tb_layernorm_directed;
         check_tie_row(1);
         check_tie_row(-1);
         passed=1;
-        $display("PASS: signed half ties round to even; first-valid latency 47 clocks; output interval 21 clocks");
+        $display("PASS: signed half ties round to even; first-valid latency 85 clocks; output interval 14 clocks");
         $finish;
     end
 endmodule
